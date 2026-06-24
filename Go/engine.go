@@ -42,11 +42,13 @@ type Peer struct {
 
 // State describes tailnet lifecycle for Swift.
 type State struct {
-	Phase string `json:"phase"`
-	IPv4  string `json:"ipv4,omitempty"`
-	IPv6  string `json:"ipv6,omitempty"`
-	Msg   string `json:"msg,omitempty"`
-	URL   string `json:"url,omitempty"`
+	Phase    string `json:"phase"`
+	IPv4     string `json:"ipv4,omitempty"`
+	IPv6     string `json:"ipv6,omitempty"`
+	DNSName  string `json:"dnsName,omitempty"`
+	HostName string `json:"hostName,omitempty"`
+	Msg      string `json:"msg,omitempty"`
+	URL      string `json:"url,omitempty"`
 }
 
 // Engine wraps one or more tsnet servers (v1: one profile).
@@ -229,9 +231,11 @@ func (e *Engine) status(profileID string) (State, error) {
 	}
 	if len(st.TailscaleIPs) > 0 {
 		return State{
-			Phase: "running",
-			IPv4:  pickIPv4(st),
-			IPv6:  pickIPv6(st),
+			Phase:    "running",
+			IPv4:     pickIPv4(st),
+			IPv6:     pickIPv6(st),
+			DNSName:  selfDNSName(st),
+			HostName: selfHostName(st),
 		}, nil
 	}
 	return State{Phase: "starting"}, nil
@@ -352,12 +356,28 @@ func (e *Engine) getConn(id int64) net.Conn {
 
 func (e *Engine) emitRunning(profileID string, st *ipnstate.Status) {
 	phase := State{
-		Phase: "running",
-		IPv4:  pickIPv4(st),
-		IPv6:  pickIPv6(st),
+		Phase:    "running",
+		IPv4:     pickIPv4(st),
+		IPv6:     pickIPv6(st),
+		DNSName:  selfDNSName(st),
+		HostName: selfHostName(st),
 	}
 	b, _ := json.Marshal(phase)
 	e.emit(Event{Type: "state", Msg: string(b)})
+}
+
+func selfDNSName(st *ipnstate.Status) string {
+	if st.Self == nil {
+		return ""
+	}
+	return st.Self.DNSName
+}
+
+func selfHostName(st *ipnstate.Status) string {
+	if st.Self == nil {
+		return ""
+	}
+	return st.Self.HostName
 }
 
 func pickIPv4(st *ipnstate.Status) string {

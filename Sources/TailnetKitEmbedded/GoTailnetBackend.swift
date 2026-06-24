@@ -4,6 +4,9 @@ import TailnetKit
 
 /// tsnet backend backed by Go TailnetCore.xcframework (gomobile).
 public actor GoTailnetBackend: TailnetBackend {
+    /// Bridge ABI version this Swift code requires; must match the Go bridge.
+    public static let bridgeProtocolVersion = 1
+
     public nonisolated let kind: TailnetBackendKind = .embedded
 
     private let bridgeBox: TailnetBridgeBox
@@ -33,6 +36,11 @@ public actor GoTailnetBackend: TailnetBackend {
     }
 
     public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
+        let box = bridgeBox
+        let found = await TailnetBridgeExecutor.run { box.bridge.protocolVersion() }
+        guard found == Self.bridgeProtocolVersion else {
+            throw TailnetError.bridgeVersionMismatch(expected: Self.bridgeProtocolVersion, found: found)
+        }
         self.profile = profile
         self.stateDirectory = stateDirectory
     }

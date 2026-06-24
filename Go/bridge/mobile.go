@@ -29,6 +29,11 @@ func NewBridge() *Bridge {
 	return b
 }
 
+const bridgeProtocolVersion = 1
+
+// ProtocolVersion reports the bridge ABI version to Swift; a mismatch is rejected.
+func (b *Bridge) ProtocolVersion() int { return bridgeProtocolVersion }
+
 // SetListener registers the Swift/ObjC event callback (may be nil).
 func (b *Bridge) SetListener(listener EventListener) {
 	b.mu.Lock()
