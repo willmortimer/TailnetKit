@@ -60,7 +60,15 @@ enum GoTailnetStateDecoder {
         case "needs_device_approval":
             return .needsDeviceApproval
         case "running":
-            return .running(ipv4: goState.ipv4, ipv6: goState.ipv6)
+            return .running(
+                TailnetIdentity(
+                    hostname: goState.hostName ?? "",
+                    dnsName: goState.dnsName,
+                    ipv4: goState.ipv4,
+                    ipv6: goState.ipv6,
+                    addresses: [goState.ipv4, goState.ipv6].compactMap { $0 }
+                )
+            )
         case "failed":
             return .failed(goState.msg ?? "Tailnet failed")
         default:
@@ -73,6 +81,8 @@ private struct GoStatePayload: Decodable {
     let phase: String
     let ipv4: String?
     let ipv6: String?
+    let dnsName: String?
+    let hostName: String?
     let msg: String?
     let url: String?
 }

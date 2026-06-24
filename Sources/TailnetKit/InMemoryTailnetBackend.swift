@@ -5,6 +5,7 @@ public actor InMemoryTailnetBackend: TailnetBackend {
     public nonisolated let kind: TailnetBackendKind = .developmentStub
 
     private var running = false
+    private var profile: TailnetProfile?
     private var peersList: [TailnetPeer]
     private let eventsContinuation: AsyncStream<TailnetEvent>.Continuation
     private let eventsStream: AsyncStream<TailnetEvent>
@@ -18,11 +19,17 @@ public actor InMemoryTailnetBackend: TailnetBackend {
         self.eventsContinuation = continuation
     }
 
-    public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {}
+    private var stubIdentity: TailnetIdentity {
+        TailnetIdentity(hostname: profile?.hostname ?? "stub", ipv4: "100.64.0.2")
+    }
+
+    public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
+        self.profile = profile
+    }
 
     public func start() async throws {
         running = true
-        eventsContinuation.yield(.state(.running(ipv4: "100.64.0.2", ipv6: nil)))
+        eventsContinuation.yield(.state(.running(stubIdentity)))
     }
 
     public func stop() async {
@@ -31,7 +38,7 @@ public actor InMemoryTailnetBackend: TailnetBackend {
     }
 
     public func currentState() async -> TailnetState {
-        running ? .running(ipv4: "100.64.0.2", ipv6: nil) : .stopped
+        running ? .running(stubIdentity) : .stopped
     }
 
     public func peers() async throws -> [TailnetPeer] {
@@ -61,7 +68,7 @@ private final class InMemoryTailnetConnection: TailnetConnection, @unchecked Sen
     }
 
     func write(_ data: Data) async throws {
-        if closed { throw TailnetError.dialFailed("connection closed") }
+        if closed { throw TailnetError.destinationUnreachable("connection closed") }
     }
 
     func close() async {

@@ -12,6 +12,6 @@ extension TailnetBackend {
     }
 
     public func openLoopbackRelay(host: String, port: Int) async throws -> Int {
-        throw TailnetError.dialFailed("Loopback relay requires the embedded TailnetCore backend")
+        throw TailnetError.relayFailed("requires the embedded TailnetCore backend")
     }
 }

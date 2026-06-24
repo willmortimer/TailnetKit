@@ -25,12 +25,35 @@ public struct TailnetProfile: Codable, Identifiable, Equatable, Sendable {
     public static var main: TailnetProfile { TailnetProfile() }
 }
 
+/// The joined tailnet node once running.
+public struct TailnetIdentity: Sendable, Equatable {
+    public var hostname: String
+    public var dnsName: String?
+    public var ipv4: String?
+    public var ipv6: String?
+    public var addresses: [String]
+
+    public init(
+        hostname: String = "",
+        dnsName: String? = nil,
+        ipv4: String? = nil,
+        ipv6: String? = nil,
+        addresses: [String] = []
+    ) {
+        self.hostname = hostname
+        self.dnsName = dnsName
+        self.ipv4 = ipv4
+        self.ipv6 = ipv6
+        self.addresses = addresses
+    }
+}
+
 public enum TailnetState: Sendable, Equatable {
     case stopped
     case starting
     case needsLogin(URL)
     case needsDeviceApproval
-    case running(ipv4: String?, ipv6: String?)
+    case running(TailnetIdentity)
     case reauthRequired(URL)
     case failed(String)
 }

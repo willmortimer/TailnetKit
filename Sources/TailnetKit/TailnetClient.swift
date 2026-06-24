@@ -1,24 +1,52 @@
 import Foundation
 
 public enum TailnetError: Error, LocalizedError, Sendable {
+    case notConfigured
     case notRunning
-    case needsLogin(URL)
-    case needsDeviceApproval
-    case unreachable(String)
-    case dialFailed(String)
+    case invalidProfile
+    case bridgeUnavailable
+    case bridgeVersionMismatch(expected: Int, found: Int)
+    case stateDirectoryUnavailable(String)
+    case authenticationRequired(URL?)
+    case deviceApprovalRequired
+    case controlPlaneUnavailable(String)
+    case destinationUnreachable(String)
+    case relayFailed(String)
+    case cancelled
+    case unsupportedPlatform
+    case upstream(String)
 
     public var errorDescription: String? {
         switch self {
+        case .notConfigured:
+            return "Configure a profile before starting."
         case .notRunning:
             return "Tailnet is not connected."
-        case .needsLogin(let url):
-            return "Tailnet login required: \(url.absoluteString)"
-        case .needsDeviceApproval:
+        case .invalidProfile:
+            return "The tailnet profile is invalid."
+        case .bridgeUnavailable:
+            return "The embedded TailnetCore bridge is unavailable."
+        case .bridgeVersionMismatch(let expected, let found):
+            return "TailnetCore bridge protocol mismatch (expected \(expected), found \(found))."
+        case .stateDirectoryUnavailable(let message):
+            return "Tailnet state directory unavailable: \(message)"
+        case .authenticationRequired(let url):
+            if let url { return "Tailnet login required: \(url.absoluteString)" }
+            return "Tailnet login required."
+        case .deviceApprovalRequired:
             return "This device must be approved in the tailnet admin console."
-        case .unreachable(let message):
-            return "Tailnet unreachable: \(message)"
-        case .dialFailed(let message):
-            return "Failed to dial over tailnet: \(message)"
+        case .controlPlaneUnavailable(let message):
+            return "Tailnet control plane unavailable: \(message)"
+        case .destinationUnreachable(let message):
+            return "Destination unreachable: \(message)"
+        case .relayFailed(let message):
+            return "Loopback relay failed: \(message)"
+        case .cancelled:
+            return "The tailnet operation was cancelled."
+        case .unsupportedPlatform:
+            return "Embedded tailnet is not supported on this platform."
+        case .upstream(let message):
+            return "Tailnet error: \(message)"
         }
     }
 }
@@ -62,9 +90,7 @@ public actor TailnetClient {
     }
 
     public func start() async throws {
-        guard profile != nil else {
-            throw TailnetError.unreachable("Configure a profile before starting")
-        }
+        guard profile != nil else { throw TailnetError.notConfigured }
         try await backend.start()
     }
 
@@ -113,7 +139,7 @@ public actor TailnetClient {
         fileManager: FileManager = .default
     ) throws -> URL {
         guard let base = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw TailnetError.unreachable("Application Support unavailable")
+            throw TailnetError.stateDirectoryUnavailable("Application Support unavailable")
         }
         let directory = base
             .appendingPathComponent("TailnetState", isDirectory: true)

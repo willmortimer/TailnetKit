@@ -30,7 +30,7 @@ final class InMemoryBackendTests: XCTestCase {
         try await backend.configure(profile: .main, stateDirectory: dir)
         try await backend.start()
         let running = await backend.currentState()
-        XCTAssertEqual(running, .running(ipv4: "100.64.0.2", ipv6: nil))
+        XCTAssertEqual(running, .running(TailnetIdentity(hostname: "tailnetkit-device", ipv4: "100.64.0.2")))
 
         let peers = try await backend.peers()
         XCTAssertEqual(peers.count, 1)
@@ -52,7 +52,7 @@ final class TailnetClientTests: XCTestCase {
         try await client.configure(profile: .main)
         try await client.start()
         let runningState = await client.currentState()
-        XCTAssertEqual(runningState, .running(ipv4: "100.64.0.2", ipv6: nil))
+        XCTAssertEqual(runningState, .running(TailnetIdentity(hostname: "tailnetkit-device", ipv4: "100.64.0.2")))
 
         let peers = try await client.peers()
         XCTAssertEqual(peers.count, 1)
@@ -68,8 +68,8 @@ final class TailnetClientTests: XCTestCase {
             try await client.start()
             XCTFail("expected start() to throw before configure()")
         } catch let error as TailnetError {
-            guard case .unreachable = error else {
-                return XCTFail("expected .unreachable, got \(error)")
+            guard case .notConfigured = error else {
+                return XCTFail("expected .notConfigured, got \(error)")
             }
         }
     }

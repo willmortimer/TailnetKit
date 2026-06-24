@@ -40,7 +40,7 @@ public actor GoTailnetBackend: TailnetBackend {
     public func start() async throws {
         let profile = try requireProfile()
         guard let stateDirectory else {
-            throw TailnetError.unreachable("Tailnet state directory not configured")
+            throw TailnetError.stateDirectoryUnavailable("not configured")
         }
         let payload = GoProfilePayload(
             id: profile.id.uuidString,
@@ -51,7 +51,7 @@ public actor GoTailnetBackend: TailnetBackend {
         )
         let data = try JSONEncoder().encode(payload)
         guard let json = String(data: data, encoding: .utf8) else {
-            throw TailnetError.unreachable("Failed to encode profile")
+            throw TailnetError.invalidProfile
         }
         Task { @MainActor in
             eventsContinuation.yield(.state(.starting))
@@ -98,7 +98,7 @@ public actor GoTailnetBackend: TailnetBackend {
             var error: NSError?
             let json = box.bridge.peersJSON(profileIDString, error: &error)
             if let error {
-                throw TailnetError.unreachable(error.localizedDescription)
+                throw TailnetError.controlPlaneUnavailable(error.localizedDescription)
             }
             guard let data = json.data(using: .utf8) else { return [] }
             let goPeers = try JSONDecoder().decode([GoPeer].self, from: data)
@@ -145,7 +145,7 @@ public actor GoTailnetBackend: TailnetBackend {
 
     private func requireProfile() throws -> TailnetProfile {
         guard let profile else {
-            throw TailnetError.unreachable("Configure a profile before starting")
+            throw TailnetError.notConfigured
         }
         return profile
     }
