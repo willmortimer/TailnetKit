@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Build Vendor/TailnetCore.xcframework from the Go tsnet bridge via gomobile.
-#
-# NOTE (step-d target): this still uses `gomobile bind`, which is lightly maintained and
-# forces the generated-header patch below. The planned replacement is
-# `go build -buildmode=c-archive` + an owned, versioned C header + `xcodebuild
-# -create-xcframework` (see Internal/AMBITIONS.md parking lot, and Tailscale's libtailscale).
+# Build Vendor/TailnetCore.xcframework from Go/ via gomobile bind.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT/Vendor/TailnetCore.xcframework"

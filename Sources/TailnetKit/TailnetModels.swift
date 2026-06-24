@@ -14,8 +14,8 @@ public struct TailnetProfile: Codable, Identifiable, Equatable, Sendable {
 
     public init(
         id: UUID = TailnetProfile.mainID,
-        displayName: String = "iGhost",
-        hostname: String = "ighost-device",
+        displayName: String = "TailnetKit",
+        hostname: String = "tailnetkit-device",
         controlURL: String? = nil,
         autoConnectOnLaunch: Bool = true,
         defaultSSHUsername: String = ""

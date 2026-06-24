@@ -1,4 +1,4 @@
-module github.com/ighostapp/ighost/Packages/TailnetKit/Go
+module github.com/willmortimer/TailnetKit/Go
 
 go 1.26.3
 

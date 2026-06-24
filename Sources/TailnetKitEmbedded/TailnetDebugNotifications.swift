@@ -3,6 +3,6 @@ import TailnetKit
 
 enum TailnetDebug {
     static func post(_ message: String) {
-        print("[iGhost] \(message)")
+        print("[TailnetKit] \(message)")
     }
 }

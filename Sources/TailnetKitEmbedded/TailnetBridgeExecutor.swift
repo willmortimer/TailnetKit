@@ -9,8 +9,8 @@ final class TailnetBridgeBox: @unchecked Sendable {
 
 /// Serializes tsnet control-plane calls; connection I/O uses a concurrent queue for full-duplex relay.
 enum TailnetBridgeExecutor {
-    private static let controlQueue = DispatchQueue(label: "com.ighost.tailnet.bridge.control")
-    private static let ioQueue = DispatchQueue(label: "com.ighost.tailnet.bridge.io", attributes: .concurrent)
+    private static let controlQueue = DispatchQueue(label: "TailnetKit.bridge.control")
+    private static let ioQueue = DispatchQueue(label: "TailnetKit.bridge.io", attributes: .concurrent)
 
     static func run<T: Sendable>(_ body: @escaping @Sendable () throws -> T) async throws -> T {
         try await withCheckedThrowingContinuation { continuation in

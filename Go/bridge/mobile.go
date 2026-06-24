@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	tailnet "github.com/ighostapp/ighost/Packages/TailnetKit/Go"
+	tailnet "github.com/willmortimer/TailnetKit/Go"
 )
 
 // EventListener receives tailnet lifecycle events as JSON (gomobile callback into Swift).

@@ -12,12 +12,12 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	tailnet "github.com/ighostapp/ighost/Packages/TailnetKit/Go"
+	tailnet "github.com/willmortimer/TailnetKit/Go"
 )
 
 func main() {
-	stateDir := flag.String("state", filepath.Join(os.TempDir(), "ighost-tailnet-cli"), "tsnet state directory")
-	hostname := flag.String("hostname", "ighost-cli-dev", "tailnet hostname")
+	stateDir := flag.String("state", filepath.Join(os.TempDir(), "tailnetkit-cli"), "tsnet state directory")
+	hostname := flag.String("hostname", "tailnetkit-cli-dev", "tailnet hostname")
 	controlURL := flag.String("control", "", "optional control server URL")
 	host := flag.String("host", "", "peer hostname for dial/ssh")
 	port := flag.Int("port", 22, "peer port")

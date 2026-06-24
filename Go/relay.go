@@ -27,24 +27,24 @@ func (e *Engine) OpenLoopbackRelay(profileID, host string, port int) (int, error
 	relayPort := ln.Addr().(*net.TCPAddr).Port
 	target := net.JoinHostPort(host, strconv.Itoa(port))
 
-	log.Printf("[iGhost] relay go: listening 127.0.0.1:%d → %s", relayPort, target)
+	log.Printf("[tailnetkit] relay: listening 127.0.0.1:%d → %s", relayPort, target)
 
 	go func() {
 		defer ln.Close()
 		local, err := ln.Accept()
 		if err != nil {
-			log.Printf("[iGhost] relay go: accept failed: %v", err)
+			log.Printf("[tailnetkit] relay: accept failed: %v", err)
 			return
 		}
-		log.Printf("[iGhost] relay go: local client connected from %s", local.RemoteAddr())
+		log.Printf("[tailnetkit] relay: local client connected from %s", local.RemoteAddr())
 
 		remote, err := srv.Dial(context.Background(), "tcp", target)
 		if err != nil {
-			log.Printf("[iGhost] relay go: dial %s failed: %v", target, err)
+			log.Printf("[tailnetkit] relay: dial %s failed: %v", target, err)
 			local.Close()
 			return
 		}
-		log.Printf("[iGhost] relay go: dialed %s OK", target)
+		log.Printf("[tailnetkit] relay: dialed %s OK", target)
 
 		var wg sync.WaitGroup
 		wg.Add(2)
@@ -52,7 +52,7 @@ func (e *Engine) OpenLoopbackRelay(profileID, host string, port int) (int, error
 			defer wg.Done()
 			_, err := relayCopy("client→tailnet", remote, local)
 			if err != nil && err != io.EOF {
-				log.Printf("[iGhost] relay go: client→tailnet: %v", err)
+				log.Printf("[tailnetkit] relay: client→tailnet: %v", err)
 			}
 			if c, ok := remote.(interface{ CloseWrite() error }); ok {
 				_ = c.CloseWrite()
@@ -62,7 +62,7 @@ func (e *Engine) OpenLoopbackRelay(profileID, host string, port int) (int, error
 			defer wg.Done()
 			_, err := relayCopy("tailnet→client", local, remote)
 			if err != nil && err != io.EOF {
-				log.Printf("[iGhost] relay go: tailnet→client: %v", err)
+				log.Printf("[tailnetkit] relay: tailnet→client: %v", err)
 			}
 			if c, ok := local.(*net.TCPConn); ok {
 				_ = c.CloseWrite()

@@ -1,0 +1,14 @@
+TailnetKit
+
+This software embeds and links Tailscale's tsnet library and depends on
+tailscale.com and its transitive dependencies, distributed under the BSD
+3-Clause License. Copyright (c) Tailscale Inc. & AUTHORS.
+
+TailnetKit is an independent project. It is not affiliated with, endorsed by,
+or sponsored by Tailscale Inc. The terms "Tailscale" and "tailnet" are used
+only to describe interoperability with the Tailscale network.
+
+Vendor/TailnetCore.xcframework is built from the Go sources in Go/ via gomobile
+and statically includes compiled code from the dependencies pinned in
+Go/go.mod and Go/go.sum. A full dependency and license inventory will accompany
+binary releases.
