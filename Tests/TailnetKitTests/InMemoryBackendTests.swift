@@ -73,6 +73,15 @@ final class TailnetClientTests: XCTestCase {
             }
         }
     }
+
+    func testDestroyIdentityStops() async throws {
+        let client = TailnetClient(backend: InMemoryTailnetBackend())
+        try await client.configure(profile: .main)
+        try await client.start()
+        try await client.destroyIdentity()
+        let state = await client.currentState()
+        XCTAssertEqual(state, .stopped)
+    }
 }
 
 final class TailnetProfileCodingTests: XCTestCase {

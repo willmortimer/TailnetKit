@@ -67,6 +67,16 @@ public actor LazyGoTailnetBackend: TailnetBackend {
         await goBackend?.stop()
     }
 
+    public func destroyIdentity() async throws {
+        if let goBackend {
+            try await goBackend.destroyIdentity()
+        } else if let pendingStateDirectory {
+            try? FileManager.default.removeItem(at: pendingStateDirectory)
+        }
+        pendingProfile = nil
+        pendingStateDirectory = nil
+    }
+
     public func currentState() async -> TailnetState {
         guard let goBackend else { return .stopped }
         return await goBackend.currentState()

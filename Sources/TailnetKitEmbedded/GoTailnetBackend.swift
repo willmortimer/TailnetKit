@@ -84,6 +84,15 @@ public actor GoTailnetBackend: TailnetBackend {
         }
     }
 
+    public func destroyIdentity() async throws {
+        await stop()
+        if let stateDirectory {
+            try? FileManager.default.removeItem(at: stateDirectory)
+        }
+        profile = nil
+        stateDirectory = nil
+    }
+
     public func currentState() async -> TailnetState {
         guard let profile else { return .stopped }
         let box = bridgeBox
