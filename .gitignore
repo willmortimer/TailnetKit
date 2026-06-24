@@ -1,0 +1,19 @@
+# macOS
+.DS_Store
+
+# Swift / SwiftPM
+.build/
+.swiftpm/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcuserstate
+
+# Go
+Go/vendor/
+
+# Build artifacts — the XCFramework is produced by the build script / CI, not committed.
+Vendor/*.xcframework/
+
+# Internal working notes — never published. Idea capture, reviews, scratch.
+Internal/
