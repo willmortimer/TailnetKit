@@ -1,5 +1,7 @@
 import Foundation
 
+/// A configured embedded-tailnet identity. Transport-only: app concerns such as
+/// auto-connect policy or SSH usernames belong to the consuming app, not here.
 public struct TailnetProfile: Codable, Identifiable, Equatable, Sendable {
     public static let mainID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
@@ -7,54 +9,20 @@ public struct TailnetProfile: Codable, Identifiable, Equatable, Sendable {
     public var displayName: String
     public var hostname: String
     public var controlURL: String?
-    /// When true, reconnect embedded tailnet on app launch if it was previously authenticated.
-    public var autoConnectOnLaunch: Bool
-    /// Default SSH username for hosts added from the tailnet peer list (iOS `NSUserName()` is not useful).
-    public var defaultSSHUsername: String
 
     public init(
         id: UUID = TailnetProfile.mainID,
         displayName: String = "TailnetKit",
         hostname: String = "tailnetkit-device",
-        controlURL: String? = nil,
-        autoConnectOnLaunch: Bool = true,
-        defaultSSHUsername: String = ""
+        controlURL: String? = nil
     ) {
         self.id = id
         self.displayName = displayName
         self.hostname = hostname
         self.controlURL = controlURL
-        self.autoConnectOnLaunch = autoConnectOnLaunch
-        self.defaultSSHUsername = defaultSSHUsername
     }
 
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(UUID.self, forKey: .id)
-        displayName = try container.decode(String.self, forKey: .displayName)
-        hostname = try container.decode(String.self, forKey: .hostname)
-        controlURL = try container.decodeIfPresent(String.self, forKey: .controlURL)
-        autoConnectOnLaunch = try container.decodeIfPresent(Bool.self, forKey: .autoConnectOnLaunch) ?? true
-        defaultSSHUsername = try container.decodeIfPresent(String.self, forKey: .defaultSSHUsername) ?? ""
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case id, displayName, hostname, controlURL, autoConnectOnLaunch, defaultSSHUsername
-    }
-
-    public static var main: TailnetProfile {
-        TailnetProfile()
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(displayName, forKey: .displayName)
-        try container.encode(hostname, forKey: .hostname)
-        try container.encodeIfPresent(controlURL, forKey: .controlURL)
-        try container.encode(autoConnectOnLaunch, forKey: .autoConnectOnLaunch)
-        try container.encode(defaultSSHUsername, forKey: .defaultSSHUsername)
-    }
+    public static var main: TailnetProfile { TailnetProfile() }
 }
 
 public enum TailnetState: Sendable, Equatable {

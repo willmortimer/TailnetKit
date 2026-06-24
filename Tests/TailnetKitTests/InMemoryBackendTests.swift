@@ -49,22 +49,19 @@ final class TailnetProfileCodingTests: XCTestCase {
             id: TailnetProfile.mainID,
             displayName: "Personal",
             hostname: "my-device",
-            controlURL: "https://controlplane.example",
-            autoConnectOnLaunch: false,
-            defaultSSHUsername: "will"
+            controlURL: "https://controlplane.example"
         )
         let data = try JSONEncoder().encode(profile)
         let decoded = try JSONDecoder().decode(TailnetProfile.self, from: data)
         XCTAssertEqual(decoded, profile)
     }
 
-    func testLegacyPayloadDecodesWithDefaults() throws {
-        // A payload written before the newer keys existed must still decode.
+    func testMinimalPayloadDecodes() throws {
+        // controlURL is optional; a payload without it must still decode.
         let json = #"{"id":"00000000-0000-0000-0000-000000000001","displayName":"X","hostname":"x"}"#
         let decoded = try JSONDecoder().decode(TailnetProfile.self, from: Data(json.utf8))
         XCTAssertEqual(decoded.id, TailnetProfile.mainID)
-        XCTAssertTrue(decoded.autoConnectOnLaunch)        // defaults to true
-        XCTAssertEqual(decoded.defaultSSHUsername, "")     // defaults to empty
+        XCTAssertEqual(decoded.hostname, "x")
         XCTAssertNil(decoded.controlURL)
     }
 }
