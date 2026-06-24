@@ -10,6 +10,8 @@ public actor GoTailnetBackend: TailnetBackend {
     private let eventsContinuation: AsyncStream<TailnetEvent>.Continuation
     private let eventsStream: AsyncStream<TailnetEvent>
     private let listener: GoEventListener
+    private var profile: TailnetProfile?
+    private var stateDirectory: URL?
 
     public init() {
         guard let bridge = BridgeNewBridge() else {
@@ -30,7 +32,16 @@ public actor GoTailnetBackend: TailnetBackend {
         eventsStream
     }
 
-    public func start(profile: TailnetProfile, stateDirectory: URL) async throws {
+    public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
+        self.profile = profile
+        self.stateDirectory = stateDirectory
+    }
+
+    public func start() async throws {
+        let profile = try requireProfile()
+        guard let stateDirectory else {
+            throw TailnetError.unreachable("Tailnet state directory not configured")
+        }
         let payload = GoProfilePayload(
             id: profile.id.uuidString,
             displayName: profile.displayName,
@@ -53,9 +64,10 @@ public actor GoTailnetBackend: TailnetBackend {
         TailnetDebug.post("GoTailnet: bridge.start returned")
     }
 
-    public func stop(profileID: UUID) async {
+    public func stop() async {
+        guard let profile else { return }
         let box = bridgeBox
-        let profileIDString = profileID.uuidString
+        let profileIDString = profile.id.uuidString
         _ = await TailnetBridgeExecutor.run {
             try? box.bridge.stop(profileIDString)
         }
@@ -64,9 +76,10 @@ public actor GoTailnetBackend: TailnetBackend {
         }
     }
 
-    public func state(profileID: UUID) async -> TailnetState {
+    public func currentState() async -> TailnetState {
+        guard let profile else { return .stopped }
         let box = bridgeBox
-        let profileIDString = profileID.uuidString
+        let profileIDString = profile.id.uuidString
         return await TailnetBridgeExecutor.run {
             var error: NSError?
             let json = box.bridge.stateJSON(profileIDString, error: &error)
@@ -77,9 +90,10 @@ public actor GoTailnetBackend: TailnetBackend {
         }
     }
 
-    public func peers(profileID: UUID) async throws -> [TailnetPeer] {
+    public func peers() async throws -> [TailnetPeer] {
+        let profile = try requireProfile()
         let box = bridgeBox
-        let profileIDString = profileID.uuidString
+        let profileIDString = profile.id.uuidString
         return try await TailnetBridgeExecutor.run {
             var error: NSError?
             let json = box.bridge.peersJSON(profileIDString, error: &error)
@@ -92,9 +106,10 @@ public actor GoTailnetBackend: TailnetBackend {
         }
     }
 
-    public func dialTCP(profileID: UUID, host: String, port: Int) async throws -> any TailnetConnection {
+    public func dialTCP(host: String, port: Int) async throws -> any TailnetConnection {
+        let profile = try requireProfile()
         let box = bridgeBox
-        let profileIDString = profileID.uuidString
+        let profileIDString = profile.id.uuidString
         let connID: Int64 = try await TailnetBridgeExecutor.run {
             var connID: Int64 = 0
             try box.bridge.dialTCP(profileIDString, host: host, port: Int64(port), ret0_: &connID)
@@ -103,9 +118,10 @@ public actor GoTailnetBackend: TailnetBackend {
         return GoTailnetConnection(bridgeBox: box, connID: connID)
     }
 
-    public func openLoopbackRelay(profileID: UUID, host: String, port: Int) async throws -> Int {
+    public func openLoopbackRelay(host: String, port: Int) async throws -> Int {
+        let profile = try requireProfile()
         let box = bridgeBox
-        let profileIDString = profileID.uuidString
+        let profileIDString = profile.id.uuidString
         return try await TailnetBridgeExecutor.run {
             var relayPort: Int64 = 0
             try box.bridge.openLoopbackRelay(profileIDString, host: host, port: Int64(port), ret0_: &relayPort)
@@ -113,21 +129,25 @@ public actor GoTailnetBackend: TailnetBackend {
         }
     }
 
-    public func verifyDistributedHostKey(
-        profileID: UUID,
-        hostname: String,
-        port: Int,
-        fingerprintSHA256: String
-    ) async -> Bool {
+    public func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool {
+        guard let profile else { return false }
         let box = bridgeBox
+        let profileIDString = profile.id.uuidString
         return await TailnetBridgeExecutor.run {
             box.bridge.verifySSHHostKey(
-                profileID.uuidString,
+                profileIDString,
                 hostname: hostname,
                 port: Int64(port),
                 fingerprint: fingerprintSHA256
             )
         }
+    }
+
+    private func requireProfile() throws -> TailnetProfile {
+        guard let profile else {
+            throw TailnetError.unreachable("Configure a profile before starting")
+        }
+        return profile
     }
 }
 

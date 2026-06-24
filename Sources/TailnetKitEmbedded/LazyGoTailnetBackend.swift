@@ -9,6 +9,8 @@ public actor LazyGoTailnetBackend: TailnetBackend {
     private var forwardEventsTask: Task<Void, Never>?
     private let eventsContinuation: AsyncStream<TailnetEvent>.Continuation
     private let eventsStream: AsyncStream<TailnetEvent>
+    private var pendingProfile: TailnetProfile?
+    private var pendingStateDirectory: URL?
 
     public init() {
         var continuation: AsyncStream<TailnetEvent>.Continuation!
@@ -28,7 +30,7 @@ public actor LazyGoTailnetBackend: TailnetBackend {
         eventsStream
     }
 
-    private func ensureGo() async -> GoTailnetBackend {
+    private func ensureGo() async throws -> GoTailnetBackend {
         if let goBackend {
             return goBackend
         }
@@ -36,55 +38,54 @@ public actor LazyGoTailnetBackend: TailnetBackend {
         let backend = GoTailnetBackend()
         goBackend = backend
         TailnetDebug.post("LazyGo: TailnetCore bridge ready")
-        forwardEventsTask = Task {
-            let events = backend.events
-            for await event in events {
+        forwardEventsTask = Task { [eventsContinuation] in
+            for await event in backend.events {
                 eventsContinuation.yield(event)
             }
+        }
+        if let pendingProfile, let pendingStateDirectory {
+            try await backend.configure(profile: pendingProfile, stateDirectory: pendingStateDirectory)
         }
         return backend
     }
 
-    public func start(profile: TailnetProfile, stateDirectory: URL) async throws {
-        TailnetDebug.post("LazyGo: start requested for hostname=\(profile.hostname)")
-        try await ensureGo().start(profile: profile, stateDirectory: stateDirectory)
+    public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
+        pendingProfile = profile
+        pendingStateDirectory = stateDirectory
+        if let goBackend {
+            try await goBackend.configure(profile: profile, stateDirectory: stateDirectory)
+        }
+    }
+
+    public func start() async throws {
+        TailnetDebug.post("LazyGo: start requested")
+        try await ensureGo().start()
         TailnetDebug.post("LazyGo: start returned to Swift")
     }
 
-    public func stop(profileID: UUID) async {
-        guard let goBackend else { return }
-        await goBackend.stop(profileID: profileID)
+    public func stop() async {
+        await goBackend?.stop()
     }
 
-    public func state(profileID: UUID) async -> TailnetState {
+    public func currentState() async -> TailnetState {
         guard let goBackend else { return .stopped }
-        return await goBackend.state(profileID: profileID)
+        return await goBackend.currentState()
     }
 
-    public func peers(profileID: UUID) async throws -> [TailnetPeer] {
-        try await ensureGo().peers(profileID: profileID)
+    public func peers() async throws -> [TailnetPeer] {
+        try await ensureGo().peers()
     }
 
-    public func dialTCP(profileID: UUID, host: String, port: Int) async throws -> any TailnetConnection {
-        try await ensureGo().dialTCP(profileID: profileID, host: host, port: port)
+    public func dialTCP(host: String, port: Int) async throws -> any TailnetConnection {
+        try await ensureGo().dialTCP(host: host, port: port)
     }
 
-    public func openLoopbackRelay(profileID: UUID, host: String, port: Int) async throws -> Int {
-        try await ensureGo().openLoopbackRelay(profileID: profileID, host: host, port: port)
+    public func openLoopbackRelay(host: String, port: Int) async throws -> Int {
+        try await ensureGo().openLoopbackRelay(host: host, port: port)
     }
 
-    public func verifyDistributedHostKey(
-        profileID: UUID,
-        hostname: String,
-        port: Int,
-        fingerprintSHA256: String
-    ) async -> Bool {
+    public func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool {
         guard let goBackend else { return false }
-        return await goBackend.verifyDistributedHostKey(
-            profileID: profileID,
-            hostname: hostname,
-            port: port,
-            fingerprintSHA256: fingerprintSHA256
-        )
+        return await goBackend.verifyHostKey(hostname: hostname, port: port, fingerprintSHA256: fingerprintSHA256)
     }
 }

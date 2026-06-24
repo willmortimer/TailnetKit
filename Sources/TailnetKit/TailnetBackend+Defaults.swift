@@ -1,21 +1,17 @@
 import Foundation
 
 extension TailnetBackend {
-    public func verifyDistributedHostKey(
-        profileID: UUID,
-        hostname: String,
-        port: Int,
-        fingerprintSHA256: String
-    ) async -> Bool {
-        _ = profileID
-        _ = hostname
-        _ = port
-        _ = fingerprintSHA256
-        return false
+    /// Default identity teardown is a plain stop. Backends that persist node state
+    /// (e.g. the embedded backend) override this to also delete it.
+    public func destroyIdentity() async throws {
+        await stop()
     }
 
-    public func openLoopbackRelay(profileID: UUID, host: String, port: Int) async throws -> Int {
-        _ = profileID
-        throw TailnetError.dialFailed("Loopback relay requires embedded TailnetCore backend")
+    public func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool {
+        false
+    }
+
+    public func openLoopbackRelay(host: String, port: Int) async throws -> Int {
+        throw TailnetError.dialFailed("Loopback relay requires the embedded TailnetCore backend")
     }
 }

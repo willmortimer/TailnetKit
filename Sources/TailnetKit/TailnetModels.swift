@@ -80,19 +80,44 @@ public protocol TailnetConnection: Sendable {
     func close() async
 }
 
+/// A single-identity tailnet backend. The owning `TailnetClient` configures one profile
+/// and drives the lifecycle; backends keep that profile internally.
 public protocol TailnetBackend: Sendable {
     nonisolated var kind: TailnetBackendKind { get }
-    func verifyDistributedHostKey(
-        profileID: UUID,
-        hostname: String,
-        port: Int,
-        fingerprintSHA256: String
-    ) async -> Bool
-    func start(profile: TailnetProfile, stateDirectory: URL) async throws
-    func stop(profileID: UUID) async
-    func state(profileID: UUID) async -> TailnetState
-    func peers(profileID: UUID) async throws -> [TailnetPeer]
-    func dialTCP(profileID: UUID, host: String, port: Int) async throws -> any TailnetConnection
-    func openLoopbackRelay(profileID: UUID, host: String, port: Int) async throws -> Int
-    var events: AsyncStream<TailnetEvent> { get async }
+    nonisolated var events: AsyncStream<TailnetEvent> { get }
+
+    func configure(profile: TailnetProfile, stateDirectory: URL) async throws
+    func start() async throws
+    func stop() async
+    func destroyIdentity() async throws
+
+    func currentState() async -> TailnetState
+    func peers() async throws -> [TailnetPeer]
+    func dialTCP(host: String, port: Int) async throws -> any TailnetConnection
+    func openLoopbackRelay(host: String, port: Int) async throws -> Int
+    func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool
+}
+
+/// A network target on the tailnet.
+public struct TailnetDestination: Sendable, Equatable {
+    public var host: String
+    public var port: Int
+
+    public init(host: String, port: Int) {
+        self.host = host
+        self.port = port
+    }
+}
+
+/// A local loopback endpoint that proxies to a `TailnetDestination` over the tailnet.
+public struct TailnetRelay: Sendable, Equatable {
+    public var host: String
+    public var port: Int
+    public var destination: TailnetDestination
+
+    public init(host: String, port: Int, destination: TailnetDestination) {
+        self.host = host
+        self.port = port
+        self.destination = destination
+    }
 }

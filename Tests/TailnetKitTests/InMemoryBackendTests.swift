@@ -2,7 +2,7 @@ import XCTest
 @testable import TailnetKit
 
 final class InMemoryBackendTests: XCTestCase {
-    func testLifecycleStartPeersStop() async throws {
+    func testLifecycleConfigureStartPeersStop() async throws {
         let backend = InMemoryTailnetBackend(peers: [
             TailnetPeer(
                 id: "n1",
@@ -12,14 +12,13 @@ final class InMemoryBackendTests: XCTestCase {
                 online: true
             ),
         ])
-        let profile = TailnetProfile.main
         let dir = FileManager.default.temporaryDirectory
 
         // Before start: stopped, and peers() surfaces .notRunning.
-        let stopped = await backend.state(profileID: profile.id)
+        let stopped = await backend.currentState()
         XCTAssertEqual(stopped, .stopped)
         do {
-            _ = try await backend.peers(profileID: profile.id)
+            _ = try await backend.peers()
             XCTFail("expected peers() to throw before start")
         } catch let error as TailnetError {
             guard case .notRunning = error else {
@@ -27,19 +26,52 @@ final class InMemoryBackendTests: XCTestCase {
             }
         }
 
-        // After start: running with the stub address; peers() returns the seeded list.
-        try await backend.start(profile: profile, stateDirectory: dir)
-        let running = await backend.state(profileID: profile.id)
+        // After configure + start: running with the stub address; peers() returns the list.
+        try await backend.configure(profile: .main, stateDirectory: dir)
+        try await backend.start()
+        let running = await backend.currentState()
         XCTAssertEqual(running, .running(ipv4: "100.64.0.2", ipv6: nil))
 
-        let peers = try await backend.peers(profileID: profile.id)
+        let peers = try await backend.peers()
         XCTAssertEqual(peers.count, 1)
         XCTAssertEqual(peers.first?.connectHostname, "host.example.ts.net") // trailing dot dropped
 
         // After stop: back to stopped.
-        await backend.stop(profileID: profile.id)
-        let final = await backend.state(profileID: profile.id)
+        await backend.stop()
+        let final = await backend.currentState()
         XCTAssertEqual(final, .stopped)
+    }
+}
+
+final class TailnetClientTests: XCTestCase {
+    func testClientDrivesInMemoryBackend() async throws {
+        let client = TailnetClient(backend: InMemoryTailnetBackend(peers: [
+            TailnetPeer(id: "n1", dnsName: "h.example.ts.net.", hostName: "h", tailscaleIP: "100.64.0.9", online: true),
+        ]))
+
+        try await client.configure(profile: .main)
+        try await client.start()
+        let runningState = await client.currentState()
+        XCTAssertEqual(runningState, .running(ipv4: "100.64.0.2", ipv6: nil))
+
+        let peers = try await client.peers()
+        XCTAssertEqual(peers.count, 1)
+
+        await client.stop()
+        let stoppedState = await client.currentState()
+        XCTAssertEqual(stoppedState, .stopped)
+    }
+
+    func testStartBeforeConfigureThrows() async throws {
+        let client = TailnetClient(backend: InMemoryTailnetBackend())
+        do {
+            try await client.start()
+            XCTFail("expected start() to throw before configure()")
+        } catch let error as TailnetError {
+            guard case .unreachable = error else {
+                return XCTFail("expected .unreachable, got \(error)")
+            }
+        }
     }
 }
 
