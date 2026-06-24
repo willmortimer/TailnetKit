@@ -1,5 +1,6 @@
 import XCTest
-@testable import TailnetKit
+import TailnetKitCore
+import TailnetKitTesting
 
 final class InMemoryBackendTests: XCTestCase {
     func testLifecycleConfigureStartPeersStop() async throws {

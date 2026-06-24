@@ -1,5 +1,5 @@
 import Foundation
-import TailnetKit
+import TailnetKitCore
 
 struct GoTailnetEventPayload: Decodable {
     let type: String

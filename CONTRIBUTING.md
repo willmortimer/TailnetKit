@@ -10,6 +10,6 @@ extracted from its original app. Open an issue before starting any large change.
     mise run build-xcframework   # builds Vendor/TailnetCore.xcframework (slow)
     swift test
 
-The Swift `TailnetKit` target builds without the XCFramework. `TailnetKitEmbedded`
-and the tests need `Vendor/TailnetCore.xcframework`, compiled from `Go/` by the
-build script.
+`TailnetKitCore` and `TailnetKitTesting` build without the XCFramework.
+`TailnetKitEmbedded` needs `Vendor/TailnetCore.xcframework`, compiled from `Go/`
+by the build script.

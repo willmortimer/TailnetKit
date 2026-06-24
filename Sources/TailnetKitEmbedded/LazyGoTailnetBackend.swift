@@ -1,5 +1,5 @@
 import Foundation
-import TailnetKit
+import TailnetKitCore
 
 /// Defers GoTailnetBackend construction until the first tailnet operation so app launch stays responsive.
 public actor LazyGoTailnetBackend: TailnetBackend {

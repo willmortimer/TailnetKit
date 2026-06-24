@@ -8,20 +8,28 @@ let package = Package(
         .macOS(.v14),
     ],
     products: [
-        .library(name: "TailnetKit", targets: ["TailnetKit"]),
+        .library(name: "TailnetKitCore", targets: ["TailnetKitCore"]),
         .library(name: "TailnetKitEmbedded", targets: ["TailnetKitEmbedded"]),
+        .library(name: "TailnetKitTesting", targets: ["TailnetKitTesting"]),
     ],
     targets: [
-        // Models, lifecycle, in-memory backend. No binary dependency.
+        // Models, lifecycle, client, errors. No binary dependency.
         .target(
-            name: "TailnetKit",
-            path: "Sources/TailnetKit",
+            name: "TailnetKitCore",
+            path: "Sources/TailnetKitCore",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        // In-memory backend for tests and previews.
+        .target(
+            name: "TailnetKitTesting",
+            dependencies: ["TailnetKitCore"],
+            path: "Sources/TailnetKitTesting",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         // tsnet backend backed by the gomobile-built XCFramework.
         .target(
             name: "TailnetKitEmbedded",
-            dependencies: ["TailnetKit", "TailnetCore"],
+            dependencies: ["TailnetKitCore", "TailnetCore"],
             path: "Sources/TailnetKitEmbedded",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
@@ -32,7 +40,7 @@ let package = Package(
         ),
         .testTarget(
             name: "TailnetKitTests",
-            dependencies: ["TailnetKit"],
+            dependencies: ["TailnetKitCore", "TailnetKitTesting"],
             path: "Tests/TailnetKitTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

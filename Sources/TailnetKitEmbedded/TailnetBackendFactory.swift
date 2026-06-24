@@ -1,5 +1,5 @@
 import Foundation
-import TailnetKit
+import TailnetKitCore
 
 /// Selects the tailnet backend available in this build.
 public enum TailnetBackendFactory {

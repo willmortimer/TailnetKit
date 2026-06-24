@@ -1,6 +1,6 @@
 import Foundation
 import TailnetCore
-import TailnetKit
+import TailnetKitCore
 
 final class GoTailnetConnection: TailnetConnection, @unchecked Sendable {
     private let bridgeBox: TailnetBridgeBox

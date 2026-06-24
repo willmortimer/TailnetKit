@@ -1,4 +1,5 @@
 import Foundation
+import TailnetKitCore
 
 /// In-process tailnet backend for tests and previews when Go TailnetCore is not linked.
 public actor InMemoryTailnetBackend: TailnetBackend {

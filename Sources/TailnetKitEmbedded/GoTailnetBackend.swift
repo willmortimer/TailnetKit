@@ -1,6 +1,6 @@
 import Foundation
 import TailnetCore
-import TailnetKit
+import TailnetKitCore
 
 /// tsnet backend backed by Go TailnetCore.xcframework (gomobile).
 public actor GoTailnetBackend: TailnetBackend {

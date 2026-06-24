@@ -1,6 +1,6 @@
 import Foundation
 import TailnetCore
-import TailnetKit
+import TailnetKitCore
 
 /// Forwards gomobile JSON events into a TailnetKit AsyncStream (always onto the main queue for UI consumers).
 final class GoEventListener: NSObject, BridgeEventListenerProtocol, @unchecked Sendable {
