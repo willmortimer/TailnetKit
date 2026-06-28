@@ -13,9 +13,17 @@ description = "One-time gomobile toolchain init (run before building TailnetCore
 run = "./Scripts/gomobile-init.sh"
 
 [tasks.build-xcframework]
-description = "Build Vendor/TailnetCore.xcframework"
+description = "Build Vendor/TailnetCore.xcframework (legacy gomobile path)"
 depends = ["gomobile-init"]
 run = "./Scripts/build-xcframework.sh"
+
+[tasks.build-carchive]
+description = "Build Vendor/TailnetCore.xcframework from the c-archive C ABI"
+run = "./Scripts/build-carchive-xcframework.sh"
+
+[tasks.carchive-smoke]
+description = "Standalone C probe of the c-archive boundary (needs network)"
+run = "./Scripts/carchive-smoke.sh"
 
 [tasks.test]
 description = "Run Swift tests"
