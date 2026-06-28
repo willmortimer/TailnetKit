@@ -34,7 +34,7 @@ public actor LazyGoTailnetBackend: TailnetBackend {
         if let goBackend {
             return goBackend
         }
-        TailnetDebug.post("LazyGo: creating TailnetCore bridge (BridgeNewBridge)…")
+        TailnetDebug.post("LazyGo: creating TailnetCore bridge (tnk_new_bridge)…")
         let backend = GoTailnetBackend()
         goBackend = backend
         TailnetDebug.post("LazyGo: TailnetCore bridge ready")

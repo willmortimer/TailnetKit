@@ -2,9 +2,9 @@ import Foundation
 import TailnetCore
 import TailnetKitCore
 
-/// tsnet backend backed by Go TailnetCore.xcframework (gomobile).
+/// tsnet backend backed by the Go TailnetCore.xcframework (c-archive / flat C ABI).
 public actor GoTailnetBackend: TailnetBackend {
-    /// Bridge ABI version this Swift code requires; must match the Go bridge.
+    /// C ABI version this Swift code requires; must match the Go side.
     public static let bridgeProtocolVersion = 1
 
     public nonisolated let kind: TailnetBackendKind = .embedded
@@ -12,23 +12,21 @@ public actor GoTailnetBackend: TailnetBackend {
     private let bridgeBox: TailnetBridgeBox
     private let eventsContinuation: AsyncStream<TailnetEvent>.Continuation
     private let eventsStream: AsyncStream<TailnetEvent>
-    private let listener: GoEventListener
     private var profile: TailnetProfile?
     private var stateDirectory: URL?
 
     public init() {
-        guard let bridge = BridgeNewBridge() else {
-            fatalError("TailnetCore BridgeNewBridge returned nil")
-        }
         var continuation: AsyncStream<TailnetEvent>.Continuation!
         let stream = AsyncStream<TailnetEvent> { cont in
             continuation = cont
         }
-        self.bridgeBox = TailnetBridgeBox(bridge: bridge)
+        let sink = GoEventSink(continuation: continuation)
+        guard let box = TailnetBridgeBox(sink: sink) else {
+            fatalError("TailnetCore tnk_new_bridge returned 0")
+        }
+        self.bridgeBox = box
         self.eventsStream = stream
         self.eventsContinuation = continuation
-        self.listener = GoEventListener(continuation: continuation)
-        bridge.setListener(listener)
     }
 
     public nonisolated var events: AsyncStream<TailnetEvent> {
@@ -36,8 +34,7 @@ public actor GoTailnetBackend: TailnetBackend {
     }
 
     public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
-        let box = bridgeBox
-        let found = await TailnetBridgeExecutor.run { box.bridge.protocolVersion() }
+        let found = Int(tnk_protocol_version())
         guard found == Self.bridgeProtocolVersion else {
             throw TailnetError.bridgeVersionMismatch(expected: Self.bridgeProtocolVersion, found: found)
         }
@@ -61,27 +58,25 @@ public actor GoTailnetBackend: TailnetBackend {
         guard let json = String(data: data, encoding: .utf8) else {
             throw TailnetError.invalidProfile
         }
-        Task { @MainActor in
-            eventsContinuation.yield(.state(.starting))
-        }
-        TailnetDebug.post("GoTailnet: calling bridge.start (tsnet Start + status poll)")
-        let box = bridgeBox
+        eventsContinuation.yield(.state(.starting))
+        TailnetDebug.post("GoTailnet: calling tnk_start (tsnet Start + status poll)")
+        let handle = bridgeBox.handle
         try await TailnetBridgeExecutor.run {
-            try box.bridge.start(json)
+            if let msg = tnkError(tnk_start(handle, json)) {
+                throw TailnetError.upstream(msg)
+            }
         }
-        TailnetDebug.post("GoTailnet: bridge.start returned")
+        TailnetDebug.post("GoTailnet: tnk_start returned")
     }
 
     public func stop() async {
         guard let profile else { return }
-        let box = bridgeBox
-        let profileIDString = profile.id.uuidString
-        _ = await TailnetBridgeExecutor.run {
-            try? box.bridge.stop(profileIDString)
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
+        await TailnetBridgeExecutor.run {
+            if let err = tnk_stop(handle, profileID) { tnk_free(err) }
         }
-        Task { @MainActor in
-            eventsContinuation.yield(.state(.stopped))
-        }
+        eventsContinuation.yield(.state(.stopped))
     }
 
     public func destroyIdentity() async throws {
@@ -95,29 +90,29 @@ public actor GoTailnetBackend: TailnetBackend {
 
     public func currentState() async -> TailnetState {
         guard let profile else { return .stopped }
-        let box = bridgeBox
-        let profileIDString = profile.id.uuidString
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
         return await TailnetBridgeExecutor.run {
-            var error: NSError?
-            let json = box.bridge.stateJSON(profileIDString, error: &error)
-            if let error {
-                return .failed(error.localizedDescription)
+            var out: UnsafeMutablePointer<CChar>?
+            if let msg = tnkError(tnk_state_json(handle, profileID, &out)) {
+                return .failed(msg)
             }
-            return GoTailnetStateDecoder.decodeStateJSON(json)
+            defer { if let out { tnk_free(out) } }
+            return GoTailnetStateDecoder.decodeStateJSON(out.map { String(cString: $0) })
         }
     }
 
     public func peers() async throws -> [TailnetPeer] {
         let profile = try requireProfile()
-        let box = bridgeBox
-        let profileIDString = profile.id.uuidString
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
         return try await TailnetBridgeExecutor.run {
-            var error: NSError?
-            let json = box.bridge.peersJSON(profileIDString, error: &error)
-            if let error {
-                throw TailnetError.controlPlaneUnavailable(error.localizedDescription)
+            var out: UnsafeMutablePointer<CChar>?
+            if let msg = tnkError(tnk_peers_json(handle, profileID, &out)) {
+                throw TailnetError.controlPlaneUnavailable(msg)
             }
-            guard let data = json.data(using: .utf8) else { return [] }
+            defer { if let out { tnk_free(out) } }
+            guard let out, let data = String(cString: out).data(using: .utf8) else { return [] }
             let goPeers = try JSONDecoder().decode([GoPeer].self, from: data)
             return goPeers.map { $0.asTailnetPeer() }
         }
@@ -125,38 +120,37 @@ public actor GoTailnetBackend: TailnetBackend {
 
     public func dialTCP(host: String, port: Int) async throws -> any TailnetConnection {
         let profile = try requireProfile()
-        let box = bridgeBox
-        let profileIDString = profile.id.uuidString
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
         let connID: Int64 = try await TailnetBridgeExecutor.run {
-            var connID: Int64 = 0
-            try box.bridge.dialTCP(profileIDString, host: host, port: Int64(port), ret0_: &connID)
-            return connID
+            var cid: Int64 = 0
+            if let msg = tnkError(tnk_dial_tcp(handle, profileID, host, Int32(port), &cid)) {
+                throw TailnetError.upstream(msg)
+            }
+            return cid
         }
-        return GoTailnetConnection(bridgeBox: box, connID: connID)
+        return GoTailnetConnection(bridgeBox: bridgeBox, connID: connID)
     }
 
     public func openLoopbackRelay(host: String, port: Int) async throws -> Int {
         let profile = try requireProfile()
-        let box = bridgeBox
-        let profileIDString = profile.id.uuidString
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
         return try await TailnetBridgeExecutor.run {
-            var relayPort: Int64 = 0
-            try box.bridge.openLoopbackRelay(profileIDString, host: host, port: Int64(port), ret0_: &relayPort)
+            var relayPort: Int32 = 0
+            if let msg = tnkError(tnk_open_loopback_relay(handle, profileID, host, Int32(port), &relayPort)) {
+                throw TailnetError.relayFailed(msg)
+            }
             return Int(relayPort)
         }
     }
 
     public func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool {
         guard let profile else { return false }
-        let box = bridgeBox
-        let profileIDString = profile.id.uuidString
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
         return await TailnetBridgeExecutor.run {
-            box.bridge.verifySSHHostKey(
-                profileIDString,
-                hostname: hostname,
-                port: Int64(port),
-                fingerprint: fingerprintSHA256
-            )
+            tnk_verify_ssh_host_key(handle, profileID, hostname, Int32(port), fingerprintSHA256) == 1
         }
     }
 

@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Build Vendor/TailnetCore.xcframework from Go/capi via `go build -buildmode=c-archive`.
+# This replaces gomobile: it cross-compiles the C ABI per platform/arch, lipo-fuses the
+# arches, and packages them with the hand-written headers into an xcframework.
+#
+# Targets: TAILNET_CARCHIVE_TARGETS (comma list of ios,iossimulator,macos; default all).
+# A macos-only build is fast and host-testable: TAILNET_CARCHIVE_TARGETS=macos
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+GO_DIR="$ROOT/Go"
+HEADERS="$ROOT/CAPI/include"
+OUT="$ROOT/Vendor/TailnetCore.xcframework"
+BUILD="$ROOT/.carchive-build"
+TARGETS="${TAILNET_CARCHIVE_TARGETS:-ios,iossimulator,macos}"
+
+IOS_MIN=17.0
+MACOS_MIN=14.0
+LIB=libtailnetcore.a
+
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+has_target() { [[ ",$TARGETS," == *",$1,"* ]]; }
+
+if ! command -v go >/dev/null 2>&1; then
+  echo "error: Go not on PATH (see mise.toml)" >&2; exit 1
+fi
+
+# build_arch <out.a> <GOOS> <GOARCH> <sdk> <clang-target-triple>
+build_arch() {
+  local out="$1" goos="$2" goarch="$3" sdk="$4" triple="$5"
+  local sysroot clang flags
+  sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
+  clang="$(xcrun --sdk "$sdk" --find clang)"
+  flags="-isysroot $sysroot -target $triple"
+  mkdir -p "$(dirname "$out")"
+  log "  $goos/$goarch ($triple)…"
+  ( cd "$GO_DIR" && \
+    GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=1 \
+    CC="$clang" CGO_CFLAGS="$flags" CGO_LDFLAGS="$flags" \
+    go build -buildmode=c-archive -o "$out" ./capi )
+}
+
+rm -rf "$BUILD" "$OUT"
+mkdir -p "$BUILD"
+
+log "Go: $(go version)"
+log "Targets: $TARGETS"
+log "c-archive builds recompile tailscale.com per arch; expect long, mostly silent phases."
+
+heartbeat() { while true; do sleep 60; log "  still compiling… (not stuck)"; done; }
+heartbeat & heartbeat_pid=$!
+trap 'kill "$heartbeat_pid" 2>/dev/null || true' EXIT
+
+XCARGS=()
+
+if has_target ios; then
+  log "Building iOS device slice"
+  build_arch "$BUILD/ios-arm64/$LIB" ios arm64 iphoneos "arm64-apple-ios${IOS_MIN}"
+  XCARGS+=(-library "$BUILD/ios-arm64/$LIB" -headers "$HEADERS")
+fi
+
+if has_target iossimulator; then
+  log "Building iOS simulator slice (arm64 + x86_64)"
+  build_arch "$BUILD/ios-sim-arm64/$LIB" ios arm64 iphonesimulator "arm64-apple-ios${IOS_MIN}-simulator"
+  build_arch "$BUILD/ios-sim-amd64/$LIB" ios amd64 iphonesimulator "x86_64-apple-ios${IOS_MIN}-simulator"
+  mkdir -p "$BUILD/ios-simulator"
+  lipo -create "$BUILD/ios-sim-arm64/$LIB" "$BUILD/ios-sim-amd64/$LIB" -output "$BUILD/ios-simulator/$LIB"
+  XCARGS+=(-library "$BUILD/ios-simulator/$LIB" -headers "$HEADERS")
+fi
+
+if has_target macos; then
+  log "Building macOS slice (arm64 + x86_64)"
+  build_arch "$BUILD/macos-arm64/$LIB" darwin arm64 macosx "arm64-apple-macos${MACOS_MIN}"
+  build_arch "$BUILD/macos-amd64/$LIB" darwin amd64 macosx "x86_64-apple-macos${MACOS_MIN}"
+  mkdir -p "$BUILD/macos"
+  lipo -create "$BUILD/macos-arm64/$LIB" "$BUILD/macos-amd64/$LIB" -output "$BUILD/macos/$LIB"
+  XCARGS+=(-library "$BUILD/macos/$LIB" -headers "$HEADERS")
+fi
+
+kill "$heartbeat_pid" 2>/dev/null || true
+trap - EXIT
+
+if [[ ${#XCARGS[@]} -eq 0 ]]; then
+  echo "error: no targets selected (TAILNET_CARCHIVE_TARGETS=$TARGETS)" >&2; exit 1
+fi
+
+log "Packaging xcframework"
+xcodebuild -create-xcframework "${XCARGS[@]}" -output "$OUT" >/dev/null
+
+log "TailnetCore.xcframework installed at $OUT"

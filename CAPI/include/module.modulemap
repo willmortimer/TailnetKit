@@ -1,0 +1,4 @@
+module TailnetCore {
+    header "tailnetcore.h"
+    export *
+}

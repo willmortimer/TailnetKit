@@ -17,3 +17,6 @@ Vendor/*.xcframework/
 
 # Internal working notes — never published. Idea capture, reviews, scratch.
 Internal/
+
+# c-archive build scratch
+.carchive-build/
