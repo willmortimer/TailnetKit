@@ -4,8 +4,8 @@ import TailnetKitCore
 
 /// tsnet backend backed by the Go TailnetCore.xcframework (c-archive / flat C ABI).
 public actor GoTailnetBackend: TailnetBackend {
-    /// C ABI version this Swift code requires; must match the Go side.
-    public static let bridgeProtocolVersion = 1
+    /// C ABI version this Swift code requires; must match the Go side. v2 = typed structs.
+    public static let bridgeProtocolVersion = 2
 
     public nonisolated let kind: TailnetBackendKind = .embedded
 
@@ -47,23 +47,23 @@ public actor GoTailnetBackend: TailnetBackend {
         guard let stateDirectory else {
             throw TailnetError.stateDirectoryUnavailable("not configured")
         }
-        let payload = GoProfilePayload(
-            id: profile.id.uuidString,
-            displayName: profile.displayName,
-            hostname: profile.hostname,
-            controlURL: profile.controlURL,
-            stateDir: stateDirectory.path
-        )
-        let data = try JSONEncoder().encode(payload)
-        guard let json = String(data: data, encoding: .utf8) else {
-            throw TailnetError.invalidProfile
-        }
+        let id = profile.id.uuidString
+        let displayName = profile.displayName
+        let hostname = profile.hostname
+        let controlURL = profile.controlURL
+        let stateDir = stateDirectory.path
+        let handle = bridgeBox.handle
+
         eventsContinuation.yield(.state(.starting))
         TailnetDebug.post("GoTailnet: calling tnk_start (tsnet Start + status poll)")
-        let handle = bridgeBox.handle
         try await TailnetBridgeExecutor.run {
-            if let msg = tnkError(tnk_start(handle, json)) {
-                throw TailnetError.upstream(msg)
+            try withTnkProfile(
+                id: id, displayName: displayName, hostname: hostname,
+                controlURL: controlURL, stateDir: stateDir
+            ) { profilePtr in
+                if let msg = tnkError(tnk_start(handle, profilePtr)) {
+                    throw TailnetError.upstream(msg)
+                }
             }
         }
         TailnetDebug.post("GoTailnet: tnk_start returned")
@@ -93,12 +93,12 @@ public actor GoTailnetBackend: TailnetBackend {
         let handle = bridgeBox.handle
         let profileID = profile.id.uuidString
         return await TailnetBridgeExecutor.run {
-            var out: UnsafeMutablePointer<CChar>?
-            if let msg = tnkError(tnk_state_json(handle, profileID, &out)) {
+            var state = tnk_state()
+            if let msg = tnkError(tnk_get_state(handle, profileID, &state)) {
                 return .failed(msg)
             }
-            defer { if let out { tnk_free(out) } }
-            return GoTailnetStateDecoder.decodeStateJSON(out.map { String(cString: $0) })
+            defer { tnk_free_state(&state) }
+            return mapTailnetState(state)
         }
     }
 
@@ -107,14 +107,14 @@ public actor GoTailnetBackend: TailnetBackend {
         let handle = bridgeBox.handle
         let profileID = profile.id.uuidString
         return try await TailnetBridgeExecutor.run {
-            var out: UnsafeMutablePointer<CChar>?
-            if let msg = tnkError(tnk_peers_json(handle, profileID, &out)) {
+            var array: UnsafeMutablePointer<tnk_peer>?
+            var count: Int32 = 0
+            if let msg = tnkError(tnk_get_peers(handle, profileID, &array, &count)) {
                 throw TailnetError.controlPlaneUnavailable(msg)
             }
-            defer { if let out { tnk_free(out) } }
-            guard let out, let data = String(cString: out).data(using: .utf8) else { return [] }
-            let goPeers = try JSONDecoder().decode([GoPeer].self, from: data)
-            return goPeers.map { $0.asTailnetPeer() }
+            defer { tnk_free_peers(array, count) }
+            guard let array, count > 0 else { return [] }
+            return (0..<Int(count)).map { mapTailnetPeer(array[$0]) }
         }
     }
 
@@ -159,35 +159,5 @@ public actor GoTailnetBackend: TailnetBackend {
             throw TailnetError.notConfigured
         }
         return profile
-    }
-}
-
-private struct GoProfilePayload: Encodable {
-    let id: String
-    let displayName: String
-    let hostname: String
-    let controlURL: String?
-    let stateDir: String
-}
-
-private struct GoPeer: Decodable {
-    let id: String
-    let dnsName: String
-    let hostName: String
-    let tailscaleIP: String
-    let os: String?
-    let online: Bool
-    let sshEnabled: Bool
-
-    func asTailnetPeer() -> TailnetPeer {
-        TailnetPeer(
-            id: id,
-            dnsName: dnsName,
-            hostName: hostName,
-            tailscaleIP: tailscaleIP,
-            os: os,
-            online: online,
-            sshEnabled: sshEnabled
-        )
     }
 }

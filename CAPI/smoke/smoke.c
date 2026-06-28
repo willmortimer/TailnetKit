@@ -1,13 +1,12 @@
 // Standalone C probe for the c-archive boundary. Links libtailnetcore.a directly
 // (no SwiftPM, no Swift binding) and drives a Tier-1 login flow against the real
-// control plane, exercising: export-symbol resolution, hand-written header match,
-// the callback function-pointer + ctx round-trip, and string ownership.
+// control plane, exercising: export-symbol resolution, hand-written header / struct
+// layout match, the callback function-pointer + ctx round-trip, and string ownership.
 //
 // Build/run is driven by Scripts/carchive-smoke.sh. Exit 0 if a login URL (or a
 // running state) was observed via the callback.
 
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
 
 #include "tailnetcore.h"
@@ -18,12 +17,24 @@ struct probe {
     int saw_running;
 };
 
-static void on_event(void *ctx, const char *json) {
+static void on_event(void *ctx, const tnk_event *event) {
     struct probe *p = (struct probe *)ctx;
     p->events++;
-    printf("[event] %s\n", json);
-    if (strstr(json, "login") != NULL) p->saw_login = 1;
-    if (strstr(json, "running") != NULL) p->saw_running = 1;
+    switch (event->kind) {
+    case TNK_EVENT_LOGIN_URL:
+        printf("[event] login_url: %s\n", event->url ? event->url : "(null)");
+        p->saw_login = 1;
+        break;
+    case TNK_EVENT_ERROR:
+        printf("[event] error: %s\n", event->msg ? event->msg : "(null)");
+        break;
+    case TNK_EVENT_STATE:
+        printf("[event] state: phase=%d url=%s\n", event->state.phase,
+               event->state.url ? event->state.url : "");
+        if (event->state.phase == TNK_PHASE_NEEDS_LOGIN) p->saw_login = 1;
+        if (event->state.phase == TNK_PHASE_RUNNING) p->saw_running = 1;
+        break;
+    }
 }
 
 int main(int argc, char **argv) {
@@ -40,12 +51,15 @@ int main(int argc, char **argv) {
     struct probe p = {0, 0, 0};
     tnk_set_listener(h, on_event, &p);
 
-    char profile[2048];
-    snprintf(profile, sizeof(profile),
-        "{\"id\":\"main\",\"displayName\":\"probe\",\"hostname\":\"tnk-carchive-smoke\",\"stateDir\":\"%s\"}",
-        dir);
+    tnk_profile profile = {
+        .id = "main",
+        .display_name = "probe",
+        .hostname = "tnk-carchive-smoke",
+        .control_url = NULL,
+        .state_dir = dir,
+    };
 
-    char *err = tnk_start(h, profile);
+    char *err = tnk_start(h, &profile);
     if (err != NULL) {
         fprintf(stderr, "[probe] tnk_start error: %s\n", err);
         tnk_free(err);
@@ -53,14 +67,14 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    char *state_json = NULL;
-    char *serr = tnk_state_json(h, "main", &state_json);
+    tnk_state state = {0};
+    char *serr = tnk_get_state(h, "main", &state);
     if (serr != NULL) {
-        fprintf(stderr, "[probe] tnk_state_json error: %s\n", serr);
+        fprintf(stderr, "[probe] tnk_get_state error: %s\n", serr);
         tnk_free(serr);
     } else {
-        printf("[state] %s\n", state_json ? state_json : "(null)");
-        tnk_free(state_json);
+        printf("[state] phase=%d url=%s\n", state.phase, state.url ? state.url : "");
+        tnk_free_state(&state);
     }
 
     char *stop_err = tnk_stop(h, "main");

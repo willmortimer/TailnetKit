@@ -205,6 +205,16 @@ func (e *Engine) StateJSON(profileID string) (string, error) {
 	return string(b), err
 }
 
+// Status returns typed lifecycle state for the profile (typed C boundary).
+func (e *Engine) Status(profileID string) (State, error) {
+	return e.status(profileID)
+}
+
+// Peers returns the typed peer list for the profile (typed C boundary).
+func (e *Engine) Peers(profileID string) ([]Peer, error) {
+	return e.peers(profileID)
+}
+
 func (e *Engine) status(profileID string) (State, error) {
 	e.mu.Lock()
 	srv, ok := e.servers[profileID]

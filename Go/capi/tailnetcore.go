@@ -1,4 +1,4 @@
-// Command tailnetcore exposes tsnet to Swift as a flat C ABI, built with
+// Command tailnetcore exposes tsnet to Swift as a flat, typed C ABI, built with
 // `go build -buildmode=c-archive`. It wraps the same tailnet.Engine the gomobile
 // bridge used; only the boundary differs. See tailnetcore.h for the public contract.
 package main
@@ -17,8 +17,8 @@ import (
 	tailnet "github.com/willmortimer/TailnetKit/Go"
 )
 
-// protocolVersion is the C ABI version; Swift rejects a mismatch.
-const protocolVersion = 1
+// protocolVersion is the C ABI version; Swift rejects a mismatch. v2 = typed structs.
+const protocolVersion = 2
 
 // bridge pairs one engine with its registered event callback.
 type bridge struct {
@@ -52,20 +52,92 @@ func cError(err error) *C.char {
 	return C.CString(err.Error())
 }
 
-func (b *bridge) emit(ev tailnet.Event) {
-	payload, err := json.Marshal(ev)
-	if err != nil {
-		return
+// cStringOrNil mallocs a C copy of s, or returns nil for the empty string.
+func cStringOrNil(s string) *C.char {
+	if s == "" {
+		return nil
 	}
+	return C.CString(s)
+}
+
+func boolToC(b bool) C.int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func phaseToC(phase string) C.tnk_phase {
+	switch phase {
+	case "stopped":
+		return C.TNK_PHASE_STOPPED
+	case "starting":
+		return C.TNK_PHASE_STARTING
+	case "needs_login":
+		return C.TNK_PHASE_NEEDS_LOGIN
+	case "needs_device_approval":
+		return C.TNK_PHASE_NEEDS_DEVICE_APPROVAL
+	case "running":
+		return C.TNK_PHASE_RUNNING
+	default:
+		return C.TNK_PHASE_FAILED
+	}
+}
+
+// fillState populates a C state struct from a Go State. The string fields are
+// library-owned; release them with tnk_free_state.
+func fillState(out *C.tnk_state, st tailnet.State) {
+	out.phase = phaseToC(st.Phase)
+	out.ipv4 = cStringOrNil(st.IPv4)
+	out.ipv6 = cStringOrNil(st.IPv6)
+	out.dns_name = cStringOrNil(st.DNSName)
+	out.host_name = cStringOrNil(st.HostName)
+	out.url = cStringOrNil(st.URL)
+	out.msg = cStringOrNil(st.Msg)
+}
+
+func (b *bridge) emit(ev tailnet.Event) {
 	b.mu.Lock()
 	cb, ctx := b.cb, b.ctx
 	b.mu.Unlock()
 	if cb == nil {
 		return
 	}
-	cs := C.CString(string(payload))
-	C.tnk_invoke_event_cb(cb, ctx, cs)
-	C.free(unsafe.Pointer(cs))
+
+	var cev C.tnk_event
+	switch ev.Type {
+	case "login_url":
+		cev.kind = C.TNK_EVENT_LOGIN_URL
+		cev.url = cStringOrNil(ev.URL)
+	case "error":
+		cev.kind = C.TNK_EVENT_ERROR
+		cev.msg = cStringOrNil(ev.Msg)
+	case "state":
+		cev.kind = C.TNK_EVENT_STATE
+		fillState(&cev.state, decodeStateMsg(ev.Msg))
+	default:
+		return
+	}
+
+	C.tnk_invoke_event_cb(cb, ctx, &cev)
+
+	C.free(unsafe.Pointer(cev.url))
+	C.free(unsafe.Pointer(cev.msg))
+	freeState(&cev.state)
+}
+
+// decodeStateMsg turns an engine "state" event payload into a typed State. The
+// engine encodes state as JSON inside Event.Msg (except the bare "starting"); this
+// keeps the engine untouched while the C boundary stays typed.
+func decodeStateMsg(msg string) tailnet.State {
+	if msg == "starting" {
+		return tailnet.State{Phase: "starting"}
+	}
+	var st tailnet.State
+	if err := json.Unmarshal([]byte(msg), &st); err != nil {
+		return tailnet.State{Phase: "failed", Msg: msg}
+	}
+	return st
 }
 
 //export tnk_protocol_version
@@ -105,7 +177,7 @@ func tnk_set_listener(h C.longlong, cb C.tnk_event_cb, ctx unsafe.Pointer) {
 }
 
 //export tnk_start
-func tnk_start(h C.longlong, profileJSON *C.char) (errStr *C.char) {
+func tnk_start(h C.longlong, profile *C.tnk_profile) (errStr *C.char) {
 	b := lookup(h)
 	if b == nil {
 		return C.CString("invalid bridge handle")
@@ -119,11 +191,14 @@ func tnk_start(h C.longlong, profileJSON *C.char) (errStr *C.char) {
 			errStr = C.CString(msg)
 		}
 	}()
-	var profile tailnet.Profile
-	if err := json.Unmarshal([]byte(C.GoString(profileJSON)), &profile); err != nil {
-		return cError(err)
+	p := tailnet.Profile{
+		ID:          C.GoString(profile.id),
+		DisplayName: C.GoString(profile.display_name),
+		Hostname:    C.GoString(profile.hostname),
+		ControlURL:  C.GoString(profile.control_url),
+		StateDir:    C.GoString(profile.state_dir),
 	}
-	return cError(b.engine.Start(profile))
+	return cError(b.engine.Start(p))
 }
 
 //export tnk_stop
@@ -137,36 +212,87 @@ func tnk_stop(h C.longlong, profileID *C.char) *C.char {
 	return cError(b.engine.Stop(C.GoString(profileID)))
 }
 
-//export tnk_state_json
-func tnk_state_json(h C.longlong, profileID *C.char, outJSON **C.char) *C.char {
+//export tnk_get_state
+func tnk_get_state(h C.longlong, profileID *C.char, out *C.tnk_state) *C.char {
 	b := lookup(h)
 	if b == nil {
 		return C.CString("invalid bridge handle")
 	}
 	b.opMu.Lock()
 	defer b.opMu.Unlock()
-	s, err := b.engine.StateJSON(C.GoString(profileID))
+	st, err := b.engine.Status(C.GoString(profileID))
 	if err != nil {
 		return cError(err)
 	}
-	*outJSON = C.CString(s)
+	fillState(out, st)
 	return nil
 }
 
-//export tnk_peers_json
-func tnk_peers_json(h C.longlong, profileID *C.char, outJSON **C.char) *C.char {
+//export tnk_free_state
+func tnk_free_state(s *C.tnk_state) {
+	if s == nil {
+		return
+	}
+	freeState(s)
+}
+
+func freeState(s *C.tnk_state) {
+	C.free(unsafe.Pointer(s.ipv4))
+	C.free(unsafe.Pointer(s.ipv6))
+	C.free(unsafe.Pointer(s.dns_name))
+	C.free(unsafe.Pointer(s.host_name))
+	C.free(unsafe.Pointer(s.url))
+	C.free(unsafe.Pointer(s.msg))
+	s.ipv4, s.ipv6, s.dns_name, s.host_name, s.url, s.msg = nil, nil, nil, nil, nil, nil
+}
+
+//export tnk_get_peers
+func tnk_get_peers(h C.longlong, profileID *C.char, outPeers **C.tnk_peer, outCount *C.int) *C.char {
 	b := lookup(h)
 	if b == nil {
 		return C.CString("invalid bridge handle")
 	}
 	b.opMu.Lock()
 	defer b.opMu.Unlock()
-	s, err := b.engine.PeersJSON(C.GoString(profileID))
+	peers, err := b.engine.Peers(C.GoString(profileID))
 	if err != nil {
 		return cError(err)
 	}
-	*outJSON = C.CString(s)
+	n := len(peers)
+	*outCount = C.int(n)
+	if n == 0 {
+		*outPeers = nil
+		return nil
+	}
+	arr := (*C.tnk_peer)(C.malloc(C.size_t(n) * C.size_t(unsafe.Sizeof(C.tnk_peer{}))))
+	slice := unsafe.Slice(arr, n)
+	for i, p := range peers {
+		slice[i].id = cStringOrNil(p.ID)
+		slice[i].dns_name = cStringOrNil(p.DNSName)
+		slice[i].host_name = cStringOrNil(p.HostName)
+		slice[i].tailscale_ip = cStringOrNil(p.TailscaleIP)
+		slice[i].os = cStringOrNil(p.OS)
+		slice[i].online = boolToC(p.Online)
+		slice[i].ssh_enabled = boolToC(p.SSHEnabled)
+	}
+	*outPeers = arr
 	return nil
+}
+
+//export tnk_free_peers
+func tnk_free_peers(peers *C.tnk_peer, count C.int) {
+	if peers == nil {
+		return
+	}
+	slice := unsafe.Slice(peers, int(count))
+	for i := range slice {
+		C.free(unsafe.Pointer(slice[i].id))
+		C.free(unsafe.Pointer(slice[i].dns_name))
+		C.free(unsafe.Pointer(slice[i].host_name))
+		C.free(unsafe.Pointer(slice[i].tailscale_ip))
+		C.free(unsafe.Pointer(slice[i].os))
+	}
+	C.free(unsafe.Pointer(peers))
 }
 
 //export tnk_dial_tcp
