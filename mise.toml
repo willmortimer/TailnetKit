@@ -20,3 +20,7 @@ run = "./Scripts/build-xcframework.sh"
 [tasks.test]
 description = "Run Swift tests"
 run = "swift test"
+
+[tasks.smoke]
+description = "Live tailnet Tier-1 smoke test (needs network)"
+run = "TAILNET_INTEGRATION=1 swift test --filter testEmbeddedBackendReachesLogin"

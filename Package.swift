@@ -44,5 +44,12 @@ let package = Package(
             path: "Tests/TailnetKitTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Live smoke tests against a real control plane; skipped unless TAILNET_INTEGRATION=1.
+        .testTarget(
+            name: "TailnetKitIntegrationTests",
+            dependencies: ["TailnetKitCore", "TailnetKitEmbedded"],
+            path: "Tests/TailnetKitIntegrationTests",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )
