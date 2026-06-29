@@ -1,5 +1,17 @@
 // swift-tools-version: 6.0
 import PackageDescription
+import Foundation
+
+// Consumers get the published xcframework by default. Contributors building the
+// framework locally set TAILNETKIT_LOCAL_BINARY=1 to use Vendor/TailnetCore.xcframework
+// (see Scripts/build-carchive-xcframework.sh). mise sets it for the local tasks.
+let tailnetCoreBinary: Target = ProcessInfo.processInfo.environment["TAILNETKIT_LOCAL_BINARY"] != nil
+    ? .binaryTarget(name: "TailnetCore", path: "Vendor/TailnetCore.xcframework")
+    : .binaryTarget(
+        name: "TailnetCore",
+        url: "https://github.com/willmortimer/TailnetKit/releases/download/v0.1.0/TailnetCore.xcframework.zip",
+        checksum: "c7846702c659c7afa713fa288fe6fd80e39e3b7bb5eed272fe751f704a3f61db"
+    )
 
 let package = Package(
     name: "TailnetKit",
@@ -33,11 +45,8 @@ let package = Package(
             path: "Sources/TailnetKitEmbedded",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        // Built from Go/ by Scripts/build-xcframework.sh; not committed.
-        .binaryTarget(
-            name: "TailnetCore",
-            path: "Vendor/TailnetCore.xcframework"
-        ),
+        // Published release by default; local build via TAILNETKIT_LOCAL_BINARY=1.
+        tailnetCoreBinary,
         .testTarget(
             name: "TailnetKitTests",
             dependencies: ["TailnetKitCore", "TailnetKitTesting"],

@@ -20,3 +20,6 @@ Internal/
 
 # c-archive build scratch
 .carchive-build/
+
+# Release artifact (uploaded to GitHub Releases, not committed)
+TailnetCore.xcframework.zip
