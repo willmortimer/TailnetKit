@@ -65,7 +65,7 @@ final class TailnetLiveSmokeTests: XCTestCase {
         }
         if case .needsLogin(let url) = state {
             print("\n[smoke] Open this URL and authenticate; the test continues once you're running:\n  \(url.absoluteString)\n")
-            _ = try await waitForState(backend, timeout: 180) { state in
+            _ = try await waitForState(backend, timeout: 300) { state in
                 if case .running = state { return true }
                 return false
             }
