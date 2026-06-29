@@ -39,6 +39,40 @@ build_arch() {
     go build -buildmode=c-archive -o "$out" ./capi )
 }
 
+# make_framework <static-lib.a> <TailnetCore.framework dir>
+# Packages a (possibly lipo-fused) static archive as a static framework. Frameworks
+# carry their module map inside Modules/, so they don't collide in Xcode's shared
+# include/ directory the way -library/-headers xcframeworks do.
+make_framework() {
+  local lib="$1" fw="$2"
+  rm -rf "$fw"
+  mkdir -p "$fw/Headers" "$fw/Modules"
+  cp "$lib" "$fw/TailnetCore"
+  cp "$HEADERS/tailnetcore.h" "$fw/Headers/tailnetcore.h"
+  cat > "$fw/Modules/module.modulemap" <<'MM'
+framework module TailnetCore {
+    header "tailnetcore.h"
+    export *
+}
+MM
+  cat > "$fw/Info.plist" <<'PL'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleExecutable</key><string>TailnetCore</string>
+  <key>CFBundleIdentifier</key><string>com.tailnetkit.TailnetCore</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>TailnetCore</string>
+  <key>CFBundlePackageType</key><string>FMWK</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+</dict>
+</plist>
+PL
+}
+
 rm -rf "$BUILD" "$OUT"
 mkdir -p "$BUILD"
 
@@ -55,7 +89,8 @@ XCARGS=()
 if has_target ios; then
   log "Building iOS device slice"
   build_arch "$BUILD/ios-arm64/$LIB" ios arm64 iphoneos "arm64-apple-ios${IOS_MIN}"
-  XCARGS+=(-library "$BUILD/ios-arm64/$LIB" -headers "$HEADERS")
+  make_framework "$BUILD/ios-arm64/$LIB" "$BUILD/ios-arm64/fw/TailnetCore.framework"
+  XCARGS+=(-framework "$BUILD/ios-arm64/fw/TailnetCore.framework")
 fi
 
 if has_target iossimulator; then
@@ -64,7 +99,8 @@ if has_target iossimulator; then
   build_arch "$BUILD/ios-sim-amd64/$LIB" ios amd64 iphonesimulator "x86_64-apple-ios${IOS_MIN}-simulator"
   mkdir -p "$BUILD/ios-simulator"
   lipo -create "$BUILD/ios-sim-arm64/$LIB" "$BUILD/ios-sim-amd64/$LIB" -output "$BUILD/ios-simulator/$LIB"
-  XCARGS+=(-library "$BUILD/ios-simulator/$LIB" -headers "$HEADERS")
+  make_framework "$BUILD/ios-simulator/$LIB" "$BUILD/ios-simulator/fw/TailnetCore.framework"
+  XCARGS+=(-framework "$BUILD/ios-simulator/fw/TailnetCore.framework")
 fi
 
 if has_target macos; then
@@ -73,7 +109,8 @@ if has_target macos; then
   build_arch "$BUILD/macos-amd64/$LIB" darwin amd64 macosx "x86_64-apple-macos${MACOS_MIN}"
   mkdir -p "$BUILD/macos"
   lipo -create "$BUILD/macos-arm64/$LIB" "$BUILD/macos-amd64/$LIB" -output "$BUILD/macos/$LIB"
-  XCARGS+=(-library "$BUILD/macos/$LIB" -headers "$HEADERS")
+  make_framework "$BUILD/macos/$LIB" "$BUILD/macos/fw/TailnetCore.framework"
+  XCARGS+=(-framework "$BUILD/macos/fw/TailnetCore.framework")
 fi
 
 kill "$heartbeat_pid" 2>/dev/null || true
