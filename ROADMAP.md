@@ -35,7 +35,7 @@ The roadmap prioritizes:
 - Add tests for lazy backend construction
 - Add tests for fallback behavior
 - Measure current binary size, launch cost, memory, and relay performance
-- Record exact Go, gomobile, and Tailscale versions
+- Record exact Go and Tailscale versions
 - Audit licenses
 
 ### Exit criteria
@@ -71,7 +71,7 @@ The roadmap prioritizes:
 ### Exit criteria
 
 - iGhost/iGhostty consumes only the new internal package API
-- Application code no longer imports gomobile-generated symbols
+- Application code no longer imports C ABI symbols
 - The embedded implementation can be replaced by an in-memory backend in tests
 
 ## Phase 2: Public repository extraction

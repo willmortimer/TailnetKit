@@ -2,7 +2,7 @@
 
 ## 1. Architectural overview
 
-TailnetKit uses a layered architecture that keeps application code, Swift API design, gomobile adaptation, and Tailscale networking behavior separate.
+TailnetKit uses a layered architecture that keeps application code, Swift API design, C ABI adaptation, and Tailscale networking behavior separate.
 
 ```text
 +------------------------------------------------------+
@@ -25,12 +25,12 @@ TailnetKit uses a layered architecture that keeps application code, Swift API de
                                           v
                             +---------------------------+
                             | TailnetCore.xcframework   |
-                            | gomobile-generated API    |
+                            | hand-written C ABI        |
                             +-------------+-------------+
                                           |
                                           v
                             +---------------------------+
-                            | Go bridge                 |
+                            | Go capi bridge            |
                             | versioned thin facade     |
                             +-------------+-------------+
                                           |
@@ -138,7 +138,7 @@ Responsibilities:
 - Coordinate persistence
 - Expose diagnostics
 
-It must not know about gomobile symbols.
+It must not know about C ABI symbols.
 
 ### TailnetBackend
 
@@ -168,13 +168,13 @@ The library should ship reference adapters but must not force an application dat
 
 ## 5. Go runtime architecture
 
-### bridge package
+### capi package
 
-The bridge is the only package exported through gomobile.
+The capi package is the only package exported across the C ABI.
 
 It should:
 
-- use gomobile-compatible types
+- use C-compatible types
 - expose a narrow API
 - validate inputs
 - serialize versioned events
@@ -363,10 +363,9 @@ TailnetKit has several independently relevant versions:
 
 ```text
 TailnetKit API version
-Bridge protocol version
+C ABI protocol version
 Bundled Tailscale version
 Go toolchain version
-gomobile version
 XCFramework artifact version
 ```
 
@@ -431,7 +430,7 @@ Application UI
     |
 Swift TailnetKit
     |
-gomobile ABI boundary
+C ABI boundary
     |
 Go runtime
     |

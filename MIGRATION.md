@@ -25,7 +25,7 @@ Go tsnet engine
 
 iGhost/iGhostty must no longer:
 
-- build or import the gomobile bridge directly
+- build or import the C ABI bridge directly
 - know the Go package layout
 - own the XCFramework
 - parse tailnet JSON
@@ -71,7 +71,7 @@ Current relevant assets:
 
 ### Go implementation
 
-- gomobile `bridge` package
+- `capi` C ABI package
 - `tailnet.Engine`
 - `tsnet.Server` configuration
 - status polling
@@ -95,7 +95,7 @@ Current relevant assets:
 | Concern | TailnetKit | iGhost/iGhostty |
 |---|---:|---:|
 | Go module | Yes | No |
-| gomobile build | Yes | No |
+| c-archive build | Yes | No |
 | XCFramework | Yes | No |
 | Bridge versioning | Yes | No |
 | Tailnet lifecycle | Yes | No |
@@ -368,7 +368,7 @@ The public repository becomes responsible for:
 Remove from iGhost/iGhostty:
 
 - `Vendor/TailnetCore.xcframework`
-- direct pre-build gomobile scripts
+- direct pre-build c-archive scripts
 - direct Go toolchain requirements
 - direct binary embedding configuration
 
@@ -588,7 +588,7 @@ The migration is complete when:
 - iGhost/iGhostty consumes it through Swift Package Manager
 - iGhost/iGhostty contains no Go module
 - iGhost/iGhostty contains no bundled Tailnet XCFramework
-- iGhost/iGhostty imports no gomobile-generated symbols
+- iGhost/iGhostty imports no C ABI symbols
 - TailnetKit builds reproducibly
 - TailnetKit owns the bridge and relay
 - iGhost/iGhostty owns only SSH and application behavior

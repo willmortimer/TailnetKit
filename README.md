@@ -26,7 +26,7 @@ TailnetKit begins as an extraction of the embedded-tailnet implementation curren
 The existing implementation already includes:
 
 - A Go `tsnet` engine
-- A thin gomobile bridge
+- A thin, hand-written C ABI over tsnet
 - `TailnetCore.xcframework`
 - Lazy bridge initialization
 - Profile-specific state directories
@@ -62,7 +62,7 @@ TailnetKit Swift API
 TailnetCore.xcframework
     |
     v
-gomobile bridge
+C ABI (go build -buildmode=c-archive)
     |
     v
 Go tsnet engine
@@ -122,7 +122,7 @@ The production embedded-tailnet backend.
 Contains:
 
 - `GoTailnetBackend`
-- gomobile adaptation
+- C ABI adaptation
 - bridge protocol version checking
 - event decoding
 - state-directory handling
@@ -232,9 +232,9 @@ let relay = try await client.openLoopbackRelay(
 print("Connect the existing TCP client to \(relay.host):\(relay.port)")
 ```
 
-## Why not expose gomobile directly?
+## Why not expose the C ABI directly?
 
-gomobile-generated APIs are an implementation detail rather than an appropriate public Swift interface.
+The C ABI over tsnet is an implementation detail rather than an appropriate public Swift interface.
 
 TailnetKit provides:
 
@@ -318,7 +318,7 @@ TailnetKit should publish:
 - Swift Package Manager products
 - Prebuilt signed/checksummed XCFramework releases
 - Reproducible source build instructions
-- Exact Go, gomobile, and Tailscale versions
+- Exact Go and Tailscale versions
 - Software bill of materials
 - License notices
 - Release provenance
@@ -343,7 +343,7 @@ Handle login state
 Dial a private service
 ```
 
-A consuming developer should not need to understand gomobile, `tsnet.Server`, Go runtime behavior, or the Tailscale control protocol.
+A consuming developer should not need to understand the C ABI, `tsnet.Server`, Go runtime behavior, or the Tailscale control protocol.
 
 ## Non-goals
 

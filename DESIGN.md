@@ -26,7 +26,7 @@ The library should feel like an Apple networking framework even though the initi
 
 The consumer should not manage:
 
-- gomobile bindings
+- C ABI calls
 - Go runtime initialization
 - bridge callbacks
 - JSON decoding
@@ -288,7 +288,7 @@ Planned:
 
 ### 7.1 Internal protocol
 
-The gomobile bridge remains intentionally thin.
+The C ABI bridge remains intentionally thin.
 
 It should expose operations such as:
 
