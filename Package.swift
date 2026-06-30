@@ -17,6 +17,7 @@ let package = Package(
     name: "TailnetKit",
     platforms: [
         .iOS(.v17),
+        .tvOS(.v17),
         .macOS(.v14),
     ],
     products: [

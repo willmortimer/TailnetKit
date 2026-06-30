@@ -3,17 +3,18 @@
 # This replaces gomobile: it cross-compiles the C ABI per platform/arch, lipo-fuses the
 # arches, and packages them with the hand-written headers into an xcframework.
 #
-# Targets: TAILNET_CARCHIVE_TARGETS (comma list of ios,iossimulator,macos; default all).
-# A macos-only build is fast and host-testable: TAILNET_CARCHIVE_TARGETS=macos
+# Targets: TAILNET_CARCHIVE_TARGETS (comma list of ios,iossimulator,tvos,tvossimulator,macos;
+# default all). A macos-only build is fast and host-testable: TAILNET_CARCHIVE_TARGETS=macos
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 GO_DIR="$ROOT/Go"
 HEADERS="$ROOT/CAPI/include"
 OUT="$ROOT/Vendor/TailnetCore.xcframework"
 BUILD="$ROOT/.carchive-build"
-TARGETS="${TAILNET_CARCHIVE_TARGETS:-ios,iossimulator,macos}"
+TARGETS="${TAILNET_CARCHIVE_TARGETS:-ios,iossimulator,tvos,tvossimulator,macos}"
 
 IOS_MIN=17.0
+TVOS_MIN=17.0
 MACOS_MIN=14.0
 LIB=libtailnetcore.a
 
@@ -111,6 +112,23 @@ if has_target macos; then
   lipo -create "$BUILD/macos-arm64/$LIB" "$BUILD/macos-amd64/$LIB" -output "$BUILD/macos/$LIB"
   make_framework "$BUILD/macos/$LIB" "$BUILD/macos/fw/TailnetCore.framework"
   XCARGS+=(-framework "$BUILD/macos/fw/TailnetCore.framework")
+fi
+
+if has_target tvos; then
+  log "Building tvOS device slice"
+  build_arch "$BUILD/tvos-arm64/$LIB" ios arm64 appletvos "arm64-apple-tvos${TVOS_MIN}"
+  make_framework "$BUILD/tvos-arm64/$LIB" "$BUILD/tvos-arm64/fw/TailnetCore.framework"
+  XCARGS+=(-framework "$BUILD/tvos-arm64/fw/TailnetCore.framework")
+fi
+
+if has_target tvossimulator; then
+  log "Building tvOS simulator slice (arm64 + x86_64)"
+  build_arch "$BUILD/tvos-sim-arm64/$LIB" ios arm64 appletvsimulator "arm64-apple-tvos${TVOS_MIN}-simulator"
+  build_arch "$BUILD/tvos-sim-amd64/$LIB" ios amd64 appletvsimulator "x86_64-apple-tvos${TVOS_MIN}-simulator"
+  mkdir -p "$BUILD/tvos-simulator"
+  lipo -create "$BUILD/tvos-sim-arm64/$LIB" "$BUILD/tvos-sim-amd64/$LIB" -output "$BUILD/tvos-simulator/$LIB"
+  make_framework "$BUILD/tvos-simulator/$LIB" "$BUILD/tvos-simulator/fw/TailnetCore.framework"
+  XCARGS+=(-framework "$BUILD/tvos-simulator/fw/TailnetCore.framework")
 fi
 
 kill "$heartbeat_pid" 2>/dev/null || true
