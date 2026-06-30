@@ -35,7 +35,7 @@ public actor LazyGoTailnetBackend: TailnetBackend {
             return goBackend
         }
         TailnetDebug.post("LazyGo: creating TailnetCore bridge (tnk_new_bridge)…")
-        let backend = GoTailnetBackend()
+        let backend = try GoTailnetBackend()
         goBackend = backend
         TailnetDebug.post("LazyGo: TailnetCore bridge ready")
         forwardEventsTask = Task { [eventsContinuation] in

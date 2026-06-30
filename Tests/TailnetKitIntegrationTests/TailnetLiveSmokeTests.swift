@@ -22,7 +22,7 @@ final class TailnetLiveSmokeTests: XCTestCase {
     func testEmbeddedBackendReachesLogin() async throws {
         try requireIntegration()
 
-        let backend = GoTailnetBackend()
+        let backend = try GoTailnetBackend()
         let directory = freshStateDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -51,7 +51,7 @@ final class TailnetLiveSmokeTests: XCTestCase {
             "set TAILNET_INTERACTIVE=1 and authenticate when prompted"
         )
 
-        let backend = GoTailnetBackend()
+        let backend = try GoTailnetBackend()
         let directory = freshStateDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
 

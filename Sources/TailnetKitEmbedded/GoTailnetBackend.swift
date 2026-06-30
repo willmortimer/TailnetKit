@@ -15,14 +15,14 @@ public actor GoTailnetBackend: TailnetBackend {
     private var profile: TailnetProfile?
     private var stateDirectory: URL?
 
-    public init() {
+    public init() throws {
         var continuation: AsyncStream<TailnetEvent>.Continuation!
         let stream = AsyncStream<TailnetEvent> { cont in
             continuation = cont
         }
         let sink = GoEventSink(continuation: continuation)
         guard let box = TailnetBridgeBox(sink: sink) else {
-            fatalError("TailnetCore tnk_new_bridge returned 0")
+            throw TailnetError.bridgeUnavailable
         }
         self.bridgeBox = box
         self.eventsStream = stream
