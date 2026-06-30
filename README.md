@@ -1,8 +1,8 @@
 # TailnetKit
 
-TailnetKit embeds an application-scoped [Tailscale](https://tailscale.com) node into Apple-platform apps. It wraps Tailscale's Go `tsnet` implementation behind a typed Swift concurrency API and ships the Go runtime as a prebuilt XCFramework.
+TailnetKit embeds an application-scoped [Tailscale](https://tailscale.com) node into Apple-platform apps. It wraps Tailscale's Go `tsnet` implementation behind a typed Swift concurrency API and ships the Go runtime as a prebuilt, checksummed XCFramework.
 
-It lets an app reach private tailnet services directly — without routing the whole device through the system Tailscale VPN, and without the user installing Tailscale at all. The app gets its own tailnet identity, scoped to exactly the services you authorize.
+An app can reach private tailnet services directly — without routing the whole device through the system Tailscale VPN, and without the user installing Tailscale at all. The app gets its own tailnet identity, scoped to exactly the services you authorize.
 
 TailnetKit is an independent project built on Tailscale's open-source code. It is not an official Tailscale SDK.
 
@@ -14,12 +14,20 @@ Typical uses:
 - Media clients for private servers (e.g. Jellyfin)
 - Apps that need an app-specific tailnet identity with its own ACLs
 
+## Features
+
+- **Typed Swift API** — a `TailnetClient` actor, an `AsyncSequence` of lifecycle state, and structured errors.
+- **Swappable backends** — run the embedded node in production, or an in-memory backend in tests and SwiftUI previews, without changing call sites.
+- **Loopback relay** — hand a private tailnet service to any existing TCP client as `127.0.0.1:port`.
+- **Peer discovery** and **Tailscale-SSH host-key verification**.
+- **Per-profile, file-protected state**, with stop and destroy-identity as distinct operations.
+
 ## Installation
 
 Add the package in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/willmortimer/TailnetKit.git", from: "0.1.0")
+.package(url: "https://github.com/willmortimer/TailnetKit.git", from: "0.2.0")
 ```
 
 Then depend on the products you need:
@@ -34,7 +42,7 @@ Then depend on the products you need:
 import TailnetKitCore
 import TailnetKitEmbedded
 
-let client = TailnetClient(backend: GoTailnetBackend())
+let client = TailnetClient(backend: try GoTailnetBackend())
 try await client.configure(profile: TailnetProfile(hostname: "my-app"))
 
 Task {
@@ -73,31 +81,22 @@ let client = TailnetClient(backend: InMemoryTailnetBackend())
 
 ## How it works
 
-TailnetKit keeps Swift API design, the Go runtime, and Tailscale networking in separate layers:
+TailnetKit keeps the Swift API, the Go runtime, and Tailscale networking in separate layers:
 
 ```text
 Application
     |
 TailnetClient (Swift actor: profiles, state, peers, dialing)
     |
-GoTailnetBackend  ──►  TailnetCore.xcframework
-                          |
-                          C ABI (go build -buildmode=c-archive)
-                          |
-                          Go tsnet engine
-                          |
-                          Tailscale control plane, DERP, direct paths, WireGuard
+GoTailnetBackend  ──►  TailnetCore.xcframework  ──►  Go tsnet engine
+                       (versioned C ABI)             (control plane, DERP, WireGuard)
 ```
 
-Swift owns the public API, concurrency, lifecycle, persistence, and UI state. Go owns `tsnet.Server`, control-plane state, peer discovery, dialing, path selection, and the loopback relay. The two communicate over a small, versioned, hand-written C ABI.
-
-### Why not expose the C ABI directly?
-
-The C ABI over tsnet is an implementation detail, not a good public Swift interface. TailnetKit provides typed models instead of JSON, Swift actors instead of manual queues, `AsyncSequence` state streams, structured errors, configurable persistence, testable backends, and a stable versioned boundary.
+Swift owns the public API, concurrency, lifecycle, persistence, and UI state. Go owns `tsnet.Server`, control-plane state, peer discovery, dialing, path selection, and the loopback relay. See [DESIGN.md](DESIGN.md) and [ARCHITECTURE.md](ARCHITECTURE.md) for the boundary design and rationale.
 
 ## Supported platforms
 
-iOS, iPadOS, and macOS (including Mac Catalyst where practical). The XCFramework ships device, simulator, and macOS slices.
+iOS, iPadOS, tvOS, and macOS (including Mac Catalyst where practical). The XCFramework ships device, simulator, and macOS slices for each.
 
 watchOS is not a target as a full embedded node — watch apps should use a companion device or a public authenticated service instead.
 
@@ -107,6 +106,8 @@ watchOS is not a target as a full embedded node — watch apps should use a comp
 - Stopping a node and destroying its identity are distinct operations.
 - Auth URLs and control-plane secrets are kept out of logs.
 - The public API surfaces insecure configuration rather than silently accepting it.
+
+See [SECURITY.md](SECURITY.md) to report a vulnerability.
 
 ## License
 

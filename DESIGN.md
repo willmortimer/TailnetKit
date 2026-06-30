@@ -186,6 +186,15 @@ The API should distinguish:
 - control-plane unreachable
 - state directory unavailable before first unlock
 
+### 4.6 The C ABI is internal
+
+The hand-written C ABI over `tsnet` is an implementation detail, never a public surface.
+Consumers see typed models instead of JSON, Swift actors instead of manual queues, an
+`AsyncSequence` of state instead of callbacks, structured errors, configurable
+persistence, and swappable backends — across a small, versioned boundary. The C symbols
+(`tnk_*`) are an internal contract between `TailnetKitEmbedded` and `TailnetCore`, free to
+change behind the protocol-version check.
+
 ## 5. Core domain model
 
 ### TailnetProfile
