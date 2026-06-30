@@ -22,6 +22,11 @@ run = "./Scripts/carchive-smoke.sh"
 description = "Run Swift tests"
 run = "swift test"
 
+[tasks.test-go]
+description = "Run Go unit tests"
+dir = "Go"
+run = "go test ./..."
+
 [tasks.smoke]
 description = "Live tailnet Tier-1 smoke test (needs network)"
 run = "TAILNET_INTEGRATION=1 swift test --filter testEmbeddedBackendReachesLogin"
