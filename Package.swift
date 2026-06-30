@@ -9,8 +9,8 @@ let tailnetCoreBinary: Target = ProcessInfo.processInfo.environment["TAILNETKIT_
     ? .binaryTarget(name: "TailnetCore", path: "Vendor/TailnetCore.xcframework")
     : .binaryTarget(
         name: "TailnetCore",
-        url: "https://github.com/willmortimer/TailnetKit/releases/download/v0.1.1/TailnetCore.xcframework.zip",
-        checksum: "e184ec2971bf5c075c362bd8aa0b95cb1a267a7ae71d0f613f221712224b7cf3"
+        url: "https://github.com/willmortimer/TailnetKit/releases/download/v0.2.0/TailnetCore.xcframework.zip",
+        checksum: "1eb4350eb24be77e498458d50ef767fa77e12c2cd2286cddf1a09cf17b26bb0c"
     )
 
 let package = Package(
