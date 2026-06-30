@@ -1,0 +1,34 @@
+name: CI
+
+# Runs only on pushes to master (and manual dispatch) to conserve Actions minutes.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "Sources/**"
+      - "Tests/**"
+      - "Package.swift"
+      - "Package.resolved"
+      - ".github/workflows/ci.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          persist-credentials: false
+      # No TAILNETKIT_LOCAL_BINARY here, so SPM fetches the published, checksummed
+      # xcframework — the same artifact consumers get. Integration tests are gated and skip.
+      - name: swift test
+        run: swift test
