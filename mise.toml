@@ -2,8 +2,6 @@ min_version = "2024.11.0"
 
 [tools]
 go = "1.26.3"
-"go:golang.org/x/mobile/cmd/gomobile" = "0.0.0-20260529142300-ecb4cd65260a"
-"go:golang.org/x/mobile/cmd/gobind" = "0.0.0-20260529142300-ecb4cd65260a"
 
 [env]
 # Build TailnetKitEmbedded against the locally-built xcframework, not the release.
@@ -11,15 +9,6 @@ TAILNETKIT_LOCAL_BINARY = "1"
 
 [settings]
 lockfile = true
-
-[tasks.gomobile-init]
-description = "One-time gomobile toolchain init (run before building TailnetCore)"
-run = "./Scripts/gomobile-init.sh"
-
-[tasks.build-xcframework]
-description = "Build Vendor/TailnetCore.xcframework (legacy gomobile path)"
-depends = ["gomobile-init"]
-run = "./Scripts/build-xcframework.sh"
 
 [tasks.build-carchive]
 description = "Build Vendor/TailnetCore.xcframework from the c-archive C ABI"

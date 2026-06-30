@@ -22,6 +22,3 @@ with `go build -buildmode=c-archive`. A macOS-only build is fast and host-testab
 
     TAILNET_CARCHIVE_TARGETS=macos mise run build-carchive
     mise run carchive-smoke      # links the C probe against the boundary (needs network)
-
-The older gomobile path (`Go/bridge`, `mise run build-xcframework`) is kept as a
-fallback during the migration.
