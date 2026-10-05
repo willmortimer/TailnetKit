@@ -27,7 +27,7 @@ Typical uses:
 Add the package in `Package.swift`:
 
 ```swift
-.package(url: "https://github.com/willmortimer/TailnetKit.git", from: "0.2.0")
+.package(url: "https://github.com/willmortimer/TailnetKit.git", from: "0.3.1")
 ```
 
 Then depend on the products you need:

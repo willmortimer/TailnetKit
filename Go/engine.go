@@ -17,6 +17,9 @@ import (
 	"tailscale.com/tsnet"
 )
 
+// tcpDialTimeout bounds a tailnet TCP dial that would otherwise wait on context.Background forever.
+const tcpDialTimeout = 30 * time.Second
+
 // Profile configures one embedded tsnet node.
 type Profile struct {
 	ID          string `json:"id"`
@@ -125,9 +128,7 @@ func (e *Engine) Start(profile Profile) error {
 	e.emit(Event{Type: "state", Msg: "starting"})
 
 	if err := srv.Start(); err != nil {
-		e.mu.Lock()
-		delete(e.servers, profile.ID)
-		e.mu.Unlock()
+		e.abandonServer(profile.ID, srv)
 		e.emit(Event{Type: "error", Msg: err.Error()})
 		return err
 	}
@@ -138,9 +139,7 @@ func (e *Engine) Start(profile Profile) error {
 	defer cancel()
 	st, err := e.waitForInteractive(ctx, srv)
 	if err != nil {
-		e.mu.Lock()
-		delete(e.servers, profile.ID)
-		e.mu.Unlock()
+		e.abandonServer(profile.ID, srv)
 		e.emit(Event{Type: "error", Msg: err.Error()})
 		return err
 	}
@@ -249,6 +248,15 @@ func (e *Engine) Stop(profileID string) error {
 		_ = conn.Close()
 	}
 	return srv.Close()
+}
+
+func (e *Engine) abandonServer(profileID string, srv *tsnet.Server) {
+	e.mu.Lock()
+	if e.servers[profileID] == srv {
+		delete(e.servers, profileID)
+	}
+	e.mu.Unlock()
+	_ = srv.Close()
 }
 
 func (e *Engine) StateJSON(profileID string) (string, error) {
@@ -445,7 +453,9 @@ func (e *Engine) DialTCP(profileID, host string, port int) (int64, error) {
 	}
 
 	addr := net.JoinHostPort(host, strconv.Itoa(port))
-	conn, err := srv.Dial(context.Background(), "tcp", addr)
+	ctx, cancel := context.WithTimeout(context.Background(), tcpDialTimeout)
+	defer cancel()
+	conn, err := srv.Dial(ctx, "tcp", addr)
 	if err != nil {
 		return 0, err
 	}

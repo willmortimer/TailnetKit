@@ -10,7 +10,7 @@ final class TailnetByteChannelTests: XCTestCase {
         do {
             let remote = ScriptedTailnetConnection()
             remote.delayWrites = true
-            let channel = try await TailnetByteChannel.make(connection: remote, on: group.next()).get()
+            let channel = try await makeChannel(connection: remote, on: group.next()).get()
 
             var first = channel.allocator.buffer(capacity: 3)
             first.writeString("one")
@@ -45,7 +45,7 @@ final class TailnetByteChannelTests: XCTestCase {
         remote.enqueueRead(Data("hello".utf8))
         remote.enqueueRead(Data())
         let loop = group.next()
-        let channel = try await TailnetByteChannel.make(connection: remote, on: loop).get()
+        let channel = try await makeChannel(connection: remote, on: loop).get()
         let inputClosed = loop.makePromise(of: Void.self)
         let collector = ByteCollector(inputClosed: inputClosed)
         try await channel.pipeline.addHandler(collector).get()
@@ -65,7 +65,7 @@ final class TailnetByteChannelTests: XCTestCase {
         let remote = ScriptedTailnetConnection()
         remote.blockWrites = true
         let loop = group.next()
-        let channel = try await TailnetByteChannel.make(connection: remote, on: loop).get()
+        let channel = try await makeChannel(connection: remote, on: loop).get()
         let becameWritable = loop.makePromise(of: Void.self)
         try await channel.pipeline.addHandler(WritabilityWatcher(becameWritable: becameWritable)).get()
 
@@ -80,6 +80,88 @@ final class TailnetByteChannelTests: XCTestCase {
         XCTAssertTrue(channel.isWritable)
         try await channel.close().get()
         try await group.shutdownGracefully()
+    }
+
+    func testHandlersSeeChannelActiveBeforeTheFirstRead() async throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let remote = ScriptedTailnetConnection()
+        remote.enqueueRead(Data("S".utf8))
+        let loop = group.next()
+        let readPromise = loop.makePromise(of: Void.self)
+        let probe = ActivationProbe(readPromise: readPromise)
+        let channel = try await TailnetByteChannel.make(connection: remote, on: loop) { channel in
+            channel.pipeline.addHandler(probe)
+        }.get()
+
+        XCTAssertEqual(probe.snapshot(), ["handlerAdded", "channelActive"])
+        channel.read()
+        try await readPromise.futureResult.get()
+        XCTAssertEqual(probe.snapshot(), ["handlerAdded", "channelActive", "read"])
+        try await channel.close().get()
+        try await group.shutdownGracefully()
+    }
+
+    func testInputShutdownDoesNotCloseTheWriteSide() async throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let remote = ScriptedTailnetConnection()
+        let loop = group.next()
+        let channel = try await makeChannel(connection: remote, on: loop).get()
+        do {
+            try await channel.close(mode: .input).get()
+            XCTFail("input half-close should be rejected")
+        } catch let error as ChannelError {
+            XCTAssertEqual(error, .operationUnsupported)
+        }
+        XCTAssertTrue(channel.isActive)
+        XCTAssertEqual(remote.closeCount(), 0)
+        try await channel.close().get()
+        try await group.shutdownGracefully()
+    }
+}
+
+private func makeChannel(
+    connection: any TailnetConnection,
+    on loop: EventLoop
+) -> EventLoopFuture<Channel> {
+    TailnetByteChannel.make(connection: connection, on: loop) { channel in
+        channel.eventLoop.makeSucceededVoidFuture()
+    }
+}
+
+private final class ActivationProbe: ChannelInboundHandler, @unchecked Sendable {
+    typealias InboundIn = ByteBuffer
+
+    private let lock = NSLock()
+    private var events: [String] = []
+    private let readPromise: EventLoopPromise<Void>
+
+    init(readPromise: EventLoopPromise<Void>) {
+        self.readPromise = readPromise
+    }
+
+    func snapshot() -> [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return events
+    }
+
+    func handlerAdded(context: ChannelHandlerContext) {
+        record("handlerAdded")
+    }
+
+    func channelActive(context: ChannelHandlerContext) {
+        record("channelActive")
+    }
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        record("read")
+        readPromise.succeed(())
+    }
+
+    private func record(_ name: String) {
+        lock.lock()
+        events.append(name)
+        lock.unlock()
     }
 }
 

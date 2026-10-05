@@ -13,6 +13,8 @@ public enum TailnetError: Error, LocalizedError, Sendable {
     case destinationUnreachable(String)
     case relayFailed(String)
     case cancelled
+    case halfCloseUnsupported
+    case identityAlreadyRunning
     case unsupportedPlatform
     case upstream(String)
 
@@ -43,6 +45,10 @@ public enum TailnetError: Error, LocalizedError, Sendable {
             return "Loopback relay failed: \(message)"
         case .cancelled:
             return "The tailnet operation was cancelled."
+        case .halfCloseUnsupported:
+            return "This tailnet connection cannot half-close its write side."
+        case .identityAlreadyRunning:
+            return "Stop the running tailnet before configuring a different identity."
         case .unsupportedPlatform:
             return "Embedded tailnet is not supported on this platform."
         case .upstream(let message):

@@ -83,6 +83,41 @@ final class TailnetClientTests: XCTestCase {
         let state = await client.currentState()
         XCTAssertEqual(state, .stopped)
     }
+
+    func testConfigureRejectsADifferentIdentityWhileRunning() async throws {
+        let backend = InMemoryTailnetBackend()
+        let dir = FileManager.default.temporaryDirectory
+        try await backend.configure(profile: .main, stateDirectory: dir)
+        try await backend.start()
+        try await backend.configure(profile: .main, stateDirectory: dir)
+
+        let other = TailnetProfile(id: UUID(), displayName: "Other", hostname: "other")
+        do {
+            try await backend.configure(profile: other, stateDirectory: dir)
+            XCTFail("expected a running identity to refuse replacement")
+        } catch let error as TailnetError {
+            guard case .identityAlreadyRunning = error else {
+                return XCTFail("expected .identityAlreadyRunning, got \(error)")
+            }
+        }
+
+        await backend.stop()
+        try await backend.configure(profile: other, stateDirectory: dir)
+    }
+
+    func testCancelledReadResumesInsteadOfParking() async throws {
+        let backend = InMemoryTailnetBackend()
+        try await backend.configure(profile: .main, stateDirectory: FileManager.default.temporaryDirectory)
+        try await backend.start()
+        let connection = try await backend.dialTCP(host: "host.example.ts.net", port: 22)
+        let task = Task { try await connection.read(maxBytes: 16) }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("expected cancellation")
+        } catch is CancellationError {
+        }
+    }
 }
 
 final class TailnetProfileCodingTests: XCTestCase {
