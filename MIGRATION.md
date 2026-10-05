@@ -560,6 +560,13 @@ Bridge protocol 3, Tailscale v1.104.0, Go 1.27.1.
 - Datagram `dialUDP` for a later on-device Mosh proof. This release does not include a Mosh client
 - `TailnetKitNIO` wraps an already-dialed `TailnetConnection` as a SwiftNIO `Channel` with ordered writes, read backpressure, and half-close. Loopback relays remain for callers that need a socket address, such as `WKWebView`
 
+### `0.3.1`
+
+- `TailnetByteChannel.make` takes a pipeline initializer and runs it before `register()`, so installed handlers observe `channelActive`
+- `TailnetConnection.finishWriting()` is required. Connections that cannot half-close throw `TailnetError.halfCloseUnsupported` instead of closing the read side. `close(mode: .input)` on the NIO channel returns `ChannelError.operationUnsupported`
+- TCP dials through the embedded node and loopback relays use a 30-second deadline. A failed `Start` closes the `tsnet.Server` it created
+- `configure` may repeat the same profile while running. A different profile requires `stop()` first and otherwise throws `TailnetError.identityAlreadyRunning`
+
 ### `1.0.0`
 
 Only after:

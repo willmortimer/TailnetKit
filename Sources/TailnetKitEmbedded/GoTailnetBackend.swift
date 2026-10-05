@@ -14,6 +14,7 @@ public actor GoTailnetBackend: TailnetBackend {
     private let eventsStream: AsyncStream<TailnetEvent>
     private var profile: TailnetProfile?
     private var stateDirectory: URL?
+    private var started = false
 
     public init() throws {
         var continuation: AsyncStream<TailnetEvent>.Continuation!
@@ -37,6 +38,9 @@ public actor GoTailnetBackend: TailnetBackend {
         let found = Int(tnk_protocol_version())
         guard found == Self.bridgeProtocolVersion else {
             throw TailnetError.bridgeVersionMismatch(expected: Self.bridgeProtocolVersion, found: found)
+        }
+        if let current = self.profile, current.id != profile.id, started {
+            throw TailnetError.identityAlreadyRunning
         }
         self.profile = profile
         self.stateDirectory = stateDirectory
@@ -66,6 +70,7 @@ public actor GoTailnetBackend: TailnetBackend {
                 }
             }
         }
+        started = true
         TailnetDebug.post("GoTailnet: tnk_start returned")
     }
 
@@ -76,6 +81,7 @@ public actor GoTailnetBackend: TailnetBackend {
         await TailnetBridgeExecutor.run {
             if let err = tnk_stop(handle, profileID) { tnk_free(err) }
         }
+        started = false
         eventsContinuation.yield(.state(.stopped))
     }
 

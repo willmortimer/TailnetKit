@@ -7,14 +7,34 @@ import TailnetKitCore
 /// This path does not open a loopback socket. Callers that need a local address,
 /// such as `WKWebView`, keep using `TailnetClient.openLoopbackRelay`.
 public enum TailnetByteChannel {
-    /// Registers `connection` on `eventLoop`. Reading stays off until the caller
-    /// installs its pipeline and calls `read()`, so early SSH banner bytes are not dropped.
+    /// Installs `initialize` and only then registers the channel, so `channelActive`
+    /// reaches handlers that must see it. Reading stays off until the caller enables
+    /// `autoRead` or calls `read()`.
     public static func make(
         connection: any TailnetConnection,
-        on eventLoop: EventLoop
+        on eventLoop: EventLoop,
+        initialize: @escaping @Sendable (Channel) -> EventLoopFuture<Void>
     ) -> EventLoopFuture<Channel> {
         let channel = TailnetStreamChannel(connection: connection, eventLoop: eventLoop)
-        return channel.register().map { channel }
+        let promise = eventLoop.makePromise(of: Channel.self)
+        eventLoop.execute {
+            initialize(channel).hop(to: eventLoop).whenComplete { result in
+                switch result {
+                case .failure(let error):
+                    promise.fail(error)
+                case .success:
+                    channel.register().whenComplete { registered in
+                        switch registered {
+                        case .failure(let error):
+                            promise.fail(error)
+                        case .success:
+                            promise.succeed(channel)
+                        }
+                    }
+                }
+            }
+        }
+        return promise.futureResult
     }
 }
 
@@ -167,9 +187,9 @@ private final class TailnetStreamChannel: Channel, ChannelCore, @unchecked Senda
             failPendingWrites(ChannelError.outputClosed)
             if !flushInFlight { finishOutput() }
         case .input:
-            inboundClosed = true
-            readTask?.cancel()
-            promise?.succeed(())
+            // Cancelling the blocking read closes the whole TailnetConnection.
+            // Refuse input shutdown rather than killing the write side.
+            promise?.fail(ChannelError.operationUnsupported)
         case .all:
             guard !didClose else {
                 promise?.succeed(())

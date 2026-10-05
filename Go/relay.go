@@ -69,7 +69,9 @@ func (e *Engine) CloseRelay(port int) error {
 func serveRelayClient(srv *tsnet.Server, local net.Conn, target string) {
 	log.Printf("[tailnetkit] relay: local client connected from %s", local.RemoteAddr())
 
-	remote, err := srv.Dial(context.Background(), "tcp", target)
+	ctx, cancel := context.WithTimeout(context.Background(), tcpDialTimeout)
+	defer cancel()
+	remote, err := srv.Dial(ctx, "tcp", target)
 	if err != nil {
 		log.Printf("[tailnetkit] relay: dial %s failed: %v", target, err)
 		_ = local.Close()

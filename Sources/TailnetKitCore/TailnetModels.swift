@@ -132,6 +132,7 @@ public protocol TailnetConnection: Sendable {
     /// An empty result means clean EOF. Cancellation closes the connection.
     func read(maxBytes: Int) async throws -> Data
     func write(_ data: Data) async throws
+    /// Stop transmitting while leaving the read side open. Conformers that cannot do this throw `TailnetError.halfCloseUnsupported`.
     func finishWriting() async throws
     func close() async
 }
@@ -141,10 +142,6 @@ public protocol TailnetDatagramConnection: Sendable {
     func receive() async throws -> Data
     func send(_ data: Data) async throws
     func close() async
-}
-
-public extension TailnetConnection {
-    func finishWriting() async throws { await close() }
 }
 
 /// A single-identity tailnet backend. The owning `TailnetClient` configures one profile

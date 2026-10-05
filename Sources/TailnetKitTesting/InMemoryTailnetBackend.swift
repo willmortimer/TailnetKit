@@ -25,6 +25,9 @@ public actor InMemoryTailnetBackend: TailnetBackend {
     }
 
     public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
+        if let current = self.profile, current.id != profile.id, running {
+            throw TailnetError.identityAlreadyRunning
+        }
         self.profile = profile
     }
 
@@ -53,10 +56,26 @@ public actor InMemoryTailnetBackend: TailnetBackend {
     }
 }
 
+private final class ReadSlot: @unchecked Sendable {
+    enum State {
+        case idle
+        case armed
+        case finished
+        case earlyCancel
+    }
+
+    var state: State = .idle
+}
+
 private final class InMemoryTailnetConnection: TailnetConnection, @unchecked Sendable {
+    private struct Waiter {
+        let id: UUID
+        let continuation: CheckedContinuation<Data, Error>
+    }
+
     private let lock = NSLock()
     private var closed = false
-    private var waiters: [CheckedContinuation<Data, Error>] = []
+    private var waiters: [Waiter] = []
 
     init(host: String, port: Int) {
         _ = host
@@ -65,14 +84,39 @@ private final class InMemoryTailnetConnection: TailnetConnection, @unchecked Sen
 
     /// Suspends until close. An empty payload is clean EOF, matching `TailnetConnection`.
     func read(maxBytes: Int) async throws -> Data {
-        try await withCheckedThrowingContinuation { continuation in
-            lock.lock()
-            if closed {
+        let id = UUID()
+        let slot = ReadSlot()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                lock.lock()
+                if slot.state == .earlyCancel {
+                    slot.state = .finished
+                    lock.unlock()
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
+                if closed {
+                    slot.state = .finished
+                    lock.unlock()
+                    continuation.resume(returning: Data())
+                    return
+                }
+                waiters.append(Waiter(id: id, continuation: continuation))
+                slot.state = .armed
                 lock.unlock()
-                continuation.resume(returning: Data())
+            }
+        } onCancel: {
+            lock.lock()
+            if let index = waiters.firstIndex(where: { $0.id == id }) {
+                let waiter = waiters.remove(at: index)
+                slot.state = .finished
+                lock.unlock()
+                waiter.continuation.resume(throwing: CancellationError())
                 return
             }
-            waiters.append(continuation)
+            if slot.state == .idle {
+                slot.state = .earlyCancel
+            }
             lock.unlock()
         }
     }
@@ -85,6 +129,10 @@ private final class InMemoryTailnetConnection: TailnetConnection, @unchecked Sen
         _ = data
     }
 
+    func finishWriting() async throws {
+        throw TailnetError.halfCloseUnsupported
+    }
+
     func close() async {
         lock.lock()
         closed = true
@@ -92,7 +140,7 @@ private final class InMemoryTailnetConnection: TailnetConnection, @unchecked Sen
         waiters.removeAll()
         lock.unlock()
         for waiter in pending {
-            waiter.resume(returning: Data())
+            waiter.continuation.resume(returning: Data())
         }
     }
 }

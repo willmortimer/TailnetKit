@@ -50,11 +50,11 @@ public actor LazyGoTailnetBackend: TailnetBackend {
     }
 
     public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
-        pendingProfile = profile
-        pendingStateDirectory = stateDirectory
         if let goBackend {
             try await goBackend.configure(profile: profile, stateDirectory: stateDirectory)
         }
+        pendingProfile = profile
+        pendingStateDirectory = stateDirectory
     }
 
     public func start() async throws {
