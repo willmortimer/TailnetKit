@@ -69,6 +69,11 @@ public struct TailnetPeer: Identifiable, Sendable, Codable, Equatable {
     public var dnsName: String
     public var hostName: String
     public var tailscaleIP: String
+    public var addresses: [String]
+    public var tags: [String]
+    public var lastSeen: String?
+    public var currentAddress: String?
+    public var relayRegion: String?
     public var os: String?
     public var online: Bool
     public var sshEnabled: Bool
@@ -78,6 +83,11 @@ public struct TailnetPeer: Identifiable, Sendable, Codable, Equatable {
         dnsName: String,
         hostName: String,
         tailscaleIP: String,
+        addresses: [String] = [],
+        tags: [String] = [],
+        lastSeen: String? = nil,
+        currentAddress: String? = nil,
+        relayRegion: String? = nil,
         os: String? = nil,
         online: Bool = false,
         sshEnabled: Bool = false
@@ -86,6 +96,11 @@ public struct TailnetPeer: Identifiable, Sendable, Codable, Equatable {
         self.dnsName = dnsName
         self.hostName = hostName
         self.tailscaleIP = tailscaleIP
+        self.addresses = addresses
+        self.tags = tags
+        self.lastSeen = lastSeen
+        self.currentAddress = currentAddress
+        self.relayRegion = relayRegion
         self.os = os
         self.online = online
         self.sshEnabled = sshEnabled
@@ -97,10 +112,39 @@ public struct TailnetPeer: Identifiable, Sendable, Codable, Equatable {
     }
 }
 
+public struct TailnetService: Sendable, Codable, Equatable, Identifiable {
+    public let name: String
+    public let displayName: String
+    public let addresses: [String]
+    public let ports: [String]
+    public var id: String { name }
+}
+
+public struct TailnetPath: Sendable, Codable, Equatable {
+    public let latencyMillis: Double
+    public let endpoint: String?
+    public let peerRelay: String?
+    public let derpRegion: String?
+    public var isDirect: Bool { endpoint != nil && !(endpoint?.isEmpty ?? true) }
+}
+
 public protocol TailnetConnection: Sendable {
+    /// An empty result means clean EOF. Cancellation closes the connection.
     func read(maxBytes: Int) async throws -> Data
     func write(_ data: Data) async throws
+    func finishWriting() async throws
     func close() async
+}
+
+public protocol TailnetDatagramConnection: Sendable {
+    /// Returns exactly one UDP datagram; no stream framing is applied.
+    func receive() async throws -> Data
+    func send(_ data: Data) async throws
+    func close() async
+}
+
+public extension TailnetConnection {
+    func finishWriting() async throws { await close() }
 }
 
 /// A single-identity tailnet backend. The owning `TailnetClient` configures one profile
@@ -116,8 +160,12 @@ public protocol TailnetBackend: Sendable {
 
     func currentState() async -> TailnetState
     func peers() async throws -> [TailnetPeer]
+    func services() async throws -> [TailnetService]
+    func pingPath(peerIP: String) async throws -> TailnetPath
     func dialTCP(host: String, port: Int) async throws -> any TailnetConnection
+    func dialUDP(host: String, port: Int) async throws -> any TailnetDatagramConnection
     func openLoopbackRelay(host: String, port: Int) async throws -> Int
+    func closeLoopbackRelay(port: Int) async
     func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool
 }
 

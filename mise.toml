@@ -1,7 +1,7 @@
 min_version = "2024.11.0"
 
 [tools]
-go = "1.26.3"
+go = "1.27.1"
 
 [env]
 # Build TailnetKitEmbedded against the locally-built xcframework, not the release.

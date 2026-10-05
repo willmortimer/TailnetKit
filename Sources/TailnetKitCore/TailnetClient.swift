@@ -115,13 +115,29 @@ public actor TailnetClient {
         try await backend.peers()
     }
 
+    public func services() async throws -> [TailnetService] {
+        try await backend.services()
+    }
+
+    public func pingPath(peerIP: String) async throws -> TailnetPath {
+        try await backend.pingPath(peerIP: peerIP)
+    }
+
     public func dialTCP(host: String, port: Int) async throws -> any TailnetConnection {
         try await backend.dialTCP(host: host, port: port)
+    }
+
+    public func dialUDP(host: String, port: Int) async throws -> any TailnetDatagramConnection {
+        try await backend.dialUDP(host: host, port: port)
     }
 
     public func openLoopbackRelay(to destination: TailnetDestination) async throws -> TailnetRelay {
         let port = try await backend.openLoopbackRelay(host: destination.host, port: destination.port)
         return TailnetRelay(host: "127.0.0.1", port: port, destination: destination)
+    }
+
+    public func closeLoopbackRelay(_ relay: TailnetRelay) async {
+        await backend.closeLoopbackRelay(port: relay.port)
     }
 
     public func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool {

@@ -35,6 +35,7 @@ Then depend on the products you need:
 - `TailnetKitCore` — models, `TailnetClient`, errors (no binary dependency)
 - `TailnetKitEmbedded` — the embedded tsnet backend (pulls in `TailnetCore.xcframework`)
 - `TailnetKitTesting` — an in-memory backend for tests and previews
+- `TailnetKitNIO` — a SwiftNIO `Channel` for an already-dialed TCP connection. Loopback relays stay available when a caller needs a socket address
 
 ## Quick start
 

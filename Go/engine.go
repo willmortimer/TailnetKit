@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/netip"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
 
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/tailcfg"
 	"tailscale.com/tsnet"
 )
 
@@ -31,13 +35,35 @@ type Event struct {
 
 // Peer is a simplified tailnet peer for the iOS UI.
 type Peer struct {
-	ID          string `json:"id"`
-	DNSName     string `json:"dnsName"`
-	HostName    string `json:"hostName"`
-	TailscaleIP string `json:"tailscaleIP"`
-	OS          string `json:"os,omitempty"`
-	Online      bool   `json:"online"`
-	SSHEnabled  bool   `json:"sshEnabled"`
+	ID          string   `json:"id"`
+	DNSName     string   `json:"dnsName"`
+	HostName    string   `json:"hostName"`
+	TailscaleIP string   `json:"tailscaleIP"`
+	Addresses   []string `json:"addresses,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
+	LastSeen    string   `json:"lastSeen,omitempty"`
+	CurrentAddr string   `json:"currentAddr,omitempty"`
+	Relay       string   `json:"relay,omitempty"`
+	OS          string   `json:"os,omitempty"`
+	Online      bool     `json:"online"`
+	SSHEnabled  bool     `json:"sshEnabled"`
+}
+
+// Service is a private Tailscale Service visible to this node.
+type Service struct {
+	Name        string   `json:"name"`
+	DisplayName string   `json:"displayName"`
+	Addresses   []string `json:"addresses"`
+	Ports       []string `json:"ports"`
+}
+
+// Path is an active probe result; endpoint indicates direct UDP, DERPRegion
+// indicates a DERP relay. Neither is inferred from the peer's operating system.
+type Path struct {
+	LatencyMillis float64 `json:"latencyMillis"`
+	Endpoint      string  `json:"endpoint,omitempty"`
+	PeerRelay     string  `json:"peerRelay,omitempty"`
+	DERPRegion    string  `json:"derpRegion,omitempty"`
 }
 
 // State describes tailnet lifecycle for Swift.
@@ -53,17 +79,30 @@ type State struct {
 
 // Engine wraps one or more tsnet servers (v1: one profile).
 type Engine struct {
-	mu       sync.Mutex
-	servers  map[string]*tsnet.Server
-	conns    map[int64]net.Conn
-	nextID   int64
-	emit     func(Event)
+	mu      sync.Mutex
+	servers map[string]*tsnet.Server
+	conns   map[int64]ownedConn
+	relays  map[int]ownedRelay
+	nextID  int64
+	emit    func(Event)
+}
+
+type ownedConn struct {
+	profileID string
+	conn      net.Conn
+	network   string
+}
+
+type ownedRelay struct {
+	profileID string
+	listener  net.Listener
 }
 
 func NewEngine(emit func(Event)) *Engine {
 	return &Engine{
 		servers: make(map[string]*tsnet.Server),
-		conns:   make(map[int64]net.Conn),
+		conns:   make(map[int64]ownedConn),
+		relays:  make(map[int]ownedRelay),
 		emit:    emit,
 	}
 }
@@ -182,16 +221,32 @@ func (e *Engine) emitStatusOutcome(st *ipnstate.Status) error {
 
 func (e *Engine) Stop(profileID string) error {
 	e.mu.Lock()
-	defer e.mu.Unlock()
-
 	srv, ok := e.servers[profileID]
 	if !ok {
+		e.mu.Unlock()
 		return nil
 	}
 	delete(e.servers, profileID)
-	for id, conn := range e.conns {
+	var toClose []net.Conn
+	var relaysToClose []net.Listener
+	for id, owned := range e.conns {
+		if owned.profileID == profileID {
+			toClose = append(toClose, owned.conn)
+			delete(e.conns, id)
+		}
+	}
+	for port, relay := range e.relays {
+		if relay.profileID == profileID {
+			relaysToClose = append(relaysToClose, relay.listener)
+			delete(e.relays, port)
+		}
+	}
+	e.mu.Unlock()
+	for _, listener := range relaysToClose {
+		_ = listener.Close()
+	}
+	for _, conn := range toClose {
 		_ = conn.Close()
-		delete(e.conns, id)
 	}
 	return srv.Close()
 }
@@ -213,6 +268,70 @@ func (e *Engine) Status(profileID string) (State, error) {
 // Peers returns the typed peer list for the profile (typed C boundary).
 func (e *Engine) Peers(profileID string) ([]Peer, error) {
 	return e.peers(profileID)
+}
+
+func (e *Engine) Services(profileID string) ([]Service, error) {
+	e.mu.Lock()
+	srv, ok := e.servers[profileID]
+	e.mu.Unlock()
+	if !ok {
+		return nil, fmt.Errorf("tailnet not started")
+	}
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	visible, err := lc.GetServices(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Service, 0, len(visible))
+	for name, details := range visible {
+		item := Service{Name: string(name), DisplayName: details.DisplayName}
+		if item.DisplayName == "" {
+			item.DisplayName = item.Name
+		}
+		for _, addr := range details.Addrs {
+			item.Addresses = append(item.Addresses, addr.String())
+		}
+		for _, port := range details.Ports {
+			item.Ports = append(item.Ports, port.String())
+		}
+		out = append(out, item)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+func (e *Engine) PingPath(profileID, peerIP string) (Path, error) {
+	e.mu.Lock()
+	srv, ok := e.servers[profileID]
+	e.mu.Unlock()
+	if !ok {
+		return Path{}, fmt.Errorf("tailnet not started")
+	}
+	ip, err := netip.ParseAddr(peerIP)
+	if err != nil {
+		return Path{}, err
+	}
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return Path{}, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+	defer cancel()
+	result, err := lc.Ping(ctx, ip, tailcfg.PingDisco)
+	if err != nil {
+		return Path{}, err
+	}
+	if result.Err != "" {
+		return Path{}, fmt.Errorf("ping: %s", result.Err)
+	}
+	return Path{LatencyMillis: result.LatencySeconds * 1000,
+		Endpoint: result.Endpoint, PeerRelay: result.PeerRelay,
+		DERPRegion: result.DERPRegionCode}, nil
 }
 
 func (e *Engine) status(profileID string) (State, error) {
@@ -286,18 +405,34 @@ func (e *Engine) peers(profileID string) ([]Peer, error) {
 
 func mapPeer(p *ipnstate.PeerStatus) Peer {
 	ip := ""
+	addresses := make([]string, 0, len(p.TailscaleIPs))
+	for _, address := range p.TailscaleIPs {
+		addresses = append(addresses, address.String())
+	}
 	if len(p.TailscaleIPs) > 0 {
 		ip = p.TailscaleIPs[0].String()
 	}
-	sshHint := p.OS == "linux" || p.OS == "macOS" || p.OS == "darwin"
+	var tags []string
+	if p.Tags != nil {
+		tags = append(tags, p.Tags.AsSlice()...)
+	}
+	lastSeen := ""
+	if !p.LastSeen.IsZero() {
+		lastSeen = p.LastSeen.UTC().Format(time.RFC3339)
+	}
 	return Peer{
 		ID:          string(p.ID),
 		DNSName:     p.DNSName,
 		HostName:    p.HostName,
 		TailscaleIP: ip,
+		Addresses:   addresses,
+		Tags:        tags,
+		LastSeen:    lastSeen,
+		CurrentAddr: p.CurAddr,
+		Relay:       p.Relay,
 		OS:          p.OS,
 		Online:      p.Online,
-		SSHEnabled:  sshHint,
+		SSHEnabled:  len(p.SSH_HostKeys) > 0,
 	}
 }
 
@@ -317,19 +452,87 @@ func (e *Engine) DialTCP(profileID, host string, port int) (int64, error) {
 
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if e.servers[profileID] != srv {
+		_ = conn.Close()
+		return 0, fmt.Errorf("tailnet stopped while dialing")
+	}
 	id := e.nextID
 	e.nextID++
-	e.conns[id] = conn
+	e.conns[id] = ownedConn{profileID: profileID, conn: conn, network: "tcp"}
 	return id, nil
 }
 
+func (e *Engine) DialUDP(profileID, host string, port int) (int64, error) {
+	e.mu.Lock()
+	srv, ok := e.servers[profileID]
+	e.mu.Unlock()
+	if !ok {
+		return 0, fmt.Errorf("tailnet not started")
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := srv.Dial(ctx, "udp", addr)
+	if err != nil {
+		return 0, err
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.servers[profileID] != srv {
+		_ = conn.Close()
+		return 0, fmt.Errorf("tailnet stopped while dialing")
+	}
+	id := e.nextID
+	e.nextID++
+	e.conns[id] = ownedConn{profileID: profileID, conn: conn, network: "udp"}
+	return id, nil
+}
+
+func (e *Engine) ReadDatagram(id int64) ([]byte, error) {
+	e.mu.Lock()
+	owned, ok := e.conns[id]
+	e.mu.Unlock()
+	if !ok || owned.network != "udp" {
+		return nil, fmt.Errorf("unknown UDP connection %d", id)
+	}
+	buf := make([]byte, 65535)
+	n, err := owned.conn.Read(buf)
+	return buf[:n], err
+}
+
+func (e *Engine) WriteDatagram(id int64, data []byte) error {
+	if len(data) == 0 || len(data) > 65507 {
+		return fmt.Errorf("invalid datagram size %d", len(data))
+	}
+	e.mu.Lock()
+	owned, ok := e.conns[id]
+	e.mu.Unlock()
+	if !ok || owned.network != "udp" {
+		return fmt.Errorf("unknown UDP connection %d", id)
+	}
+	n, err := owned.conn.Write(data)
+	if err != nil {
+		return err
+	}
+	if n != len(data) {
+		return io.ErrShortWrite
+	}
+	return nil
+}
+
 func (e *Engine) Read(id int64, max int) ([]byte, error) {
+	if max <= 0 || max > 1<<20 {
+		return nil, fmt.Errorf("invalid read size %d", max)
+	}
 	conn := e.getConn(id)
 	if conn == nil {
 		return nil, fmt.Errorf("unknown connection %d", id)
 	}
 	buf := make([]byte, max)
 	n, err := conn.Read(buf)
+	if err == io.EOF {
+		return buf[:n], nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -341,13 +544,33 @@ func (e *Engine) Write(id int64, data []byte) error {
 	if conn == nil {
 		return fmt.Errorf("unknown connection %d", id)
 	}
-	_, err := conn.Write(data)
-	return err
+	for len(data) > 0 {
+		n, err := conn.Write(data)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		data = data[n:]
+	}
+	return nil
+}
+
+func (e *Engine) CloseWrite(id int64) error {
+	conn := e.getConn(id)
+	if conn == nil {
+		return fmt.Errorf("unknown connection %d", id)
+	}
+	if closer, ok := conn.(interface{ CloseWrite() error }); ok {
+		return closer.CloseWrite()
+	}
+	return fmt.Errorf("connection %d does not support half-close", id)
 }
 
 func (e *Engine) Close(id int64) error {
 	e.mu.Lock()
-	conn, ok := e.conns[id]
+	owned, ok := e.conns[id]
 	if ok {
 		delete(e.conns, id)
 	}
@@ -355,13 +578,13 @@ func (e *Engine) Close(id int64) error {
 	if !ok {
 		return nil
 	}
-	return conn.Close()
+	return owned.conn.Close()
 }
 
 func (e *Engine) getConn(id int64) net.Conn {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.conns[id]
+	return e.conns[id].conn
 }
 
 func (e *Engine) emitRunning(profileID string, st *ipnstate.Status) {

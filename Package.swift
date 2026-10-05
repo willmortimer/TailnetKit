@@ -24,6 +24,10 @@ let package = Package(
         .library(name: "TailnetKitCore", targets: ["TailnetKitCore"]),
         .library(name: "TailnetKitEmbedded", targets: ["TailnetKitEmbedded"]),
         .library(name: "TailnetKitTesting", targets: ["TailnetKitTesting"]),
+        .library(name: "TailnetKitNIO", targets: ["TailnetKitNIO"]),
+    ],
+    dependencies: [
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.65.0"),
     ],
     targets: [
         // Models, lifecycle, client, errors. No binary dependency.
@@ -48,9 +52,25 @@ let package = Package(
         ),
         // Published release by default; local build via TAILNETKIT_LOCAL_BINARY=1.
         tailnetCoreBinary,
+        // SwiftNIO Channel over an already-dialed TailnetConnection. No sockets.
+        .target(
+            name: "TailnetKitNIO",
+            dependencies: [
+                "TailnetKitCore",
+                .product(name: "NIOCore", package: "swift-nio"),
+            ],
+            path: "Sources/TailnetKitNIO",
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "TailnetKitTests",
-            dependencies: ["TailnetKitCore", "TailnetKitTesting"],
+            dependencies: [
+                "TailnetKitCore",
+                "TailnetKitTesting",
+                "TailnetKitNIO",
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+            ],
             path: "Tests/TailnetKitTests",
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),

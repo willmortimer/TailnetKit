@@ -4,8 +4,8 @@ import TailnetKitCore
 
 /// tsnet backend backed by the Go TailnetCore.xcframework (c-archive / flat C ABI).
 public actor GoTailnetBackend: TailnetBackend {
-    /// C ABI version this Swift code requires; must match the Go side. v2 = typed structs.
-    public static let bridgeProtocolVersion = 2
+    /// C ABI version this Swift code requires; must match the Go side. v3 adds stream half-close.
+    public static let bridgeProtocolVersion = 3
 
     public nonisolated let kind: TailnetBackendKind = .embedded
 
@@ -118,6 +118,36 @@ public actor GoTailnetBackend: TailnetBackend {
         }
     }
 
+    public func services() async throws -> [TailnetService] {
+        let profile = try requireProfile()
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
+        return try await TailnetBridgeExecutor.run {
+            var json: UnsafeMutablePointer<CChar>?
+            if let msg = tnkError(tnk_get_services_json(handle, profileID, &json)) {
+                throw TailnetError.upstream(msg)
+            }
+            guard let json else { return [] }
+            defer { tnk_free(json) }
+            return try JSONDecoder().decode([TailnetService].self, from: Data(String(cString: json).utf8))
+        }
+    }
+
+    public func pingPath(peerIP: String) async throws -> TailnetPath {
+        let profile = try requireProfile()
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
+        return try await TailnetBridgeExecutor.run {
+            var json: UnsafeMutablePointer<CChar>?
+            if let msg = tnkError(tnk_ping_path_json(handle, profileID, peerIP, &json)) {
+                throw TailnetError.upstream(msg)
+            }
+            guard let json else { throw TailnetError.upstream("empty path response") }
+            defer { tnk_free(json) }
+            return try JSONDecoder().decode(TailnetPath.self, from: Data(String(cString: json).utf8))
+        }
+    }
+
     public func dialTCP(host: String, port: Int) async throws -> any TailnetConnection {
         let profile = try requireProfile()
         let handle = bridgeBox.handle
@@ -132,6 +162,20 @@ public actor GoTailnetBackend: TailnetBackend {
         return GoTailnetConnection(bridgeBox: bridgeBox, connID: connID)
     }
 
+    public func dialUDP(host: String, port: Int) async throws -> any TailnetDatagramConnection {
+        let profile = try requireProfile()
+        let handle = bridgeBox.handle
+        let profileID = profile.id.uuidString
+        let connID: Int64 = try await TailnetBridgeExecutor.run {
+            var id: Int64 = 0
+            if let message = tnkError(tnk_dial_udp(handle, profileID, host, Int32(port), &id)) {
+                throw TailnetError.upstream(message)
+            }
+            return id
+        }
+        return GoTailnetDatagramConnection(bridgeBox: bridgeBox, connID: connID)
+    }
+
     public func openLoopbackRelay(host: String, port: Int) async throws -> Int {
         let profile = try requireProfile()
         let handle = bridgeBox.handle
@@ -142,6 +186,13 @@ public actor GoTailnetBackend: TailnetBackend {
                 throw TailnetError.relayFailed(msg)
             }
             return Int(relayPort)
+        }
+    }
+
+    public func closeLoopbackRelay(port: Int) async {
+        let handle = bridgeBox.handle
+        await TailnetBridgeExecutor.run {
+            if let err = tnk_close_loopback_relay(handle, Int32(port)) { tnk_free(err) }
         }
     }
 

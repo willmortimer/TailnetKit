@@ -17,8 +17,8 @@ import (
 	tailnet "github.com/willmortimer/TailnetKit/Go"
 )
 
-// protocolVersion is the C ABI version; Swift rejects a mismatch. v2 = typed structs.
-const protocolVersion = 2
+// protocolVersion is the C ABI version; Swift rejects a mismatch. v3 adds stream half-close.
+const protocolVersion = 3
 
 // bridge pairs one engine with its registered event callback.
 type bridge struct {
@@ -33,7 +33,7 @@ type bridge struct {
 // crosses the boundary, so no Go pointers are handed to C.
 var (
 	registryMu sync.Mutex
-	registry   = map[C.longlong]*bridge{}
+	registry              = map[C.longlong]*bridge{}
 	nextHandle C.longlong = 1
 )
 
@@ -271,6 +271,13 @@ func tnk_get_peers(h C.longlong, profileID *C.char, outPeers **C.tnk_peer, outCo
 		slice[i].dns_name = cStringOrNil(p.DNSName)
 		slice[i].host_name = cStringOrNil(p.HostName)
 		slice[i].tailscale_ip = cStringOrNil(p.TailscaleIP)
+		addressesJSON, _ := json.Marshal(p.Addresses)
+		tagsJSON, _ := json.Marshal(p.Tags)
+		slice[i].addresses_json = C.CString(string(addressesJSON))
+		slice[i].tags_json = C.CString(string(tagsJSON))
+		slice[i].last_seen = cStringOrNil(p.LastSeen)
+		slice[i].current_addr = cStringOrNil(p.CurrentAddr)
+		slice[i].relay = cStringOrNil(p.Relay)
 		slice[i].os = cStringOrNil(p.OS)
 		slice[i].online = boolToC(p.Online)
 		slice[i].ssh_enabled = boolToC(p.SSHEnabled)
@@ -290,9 +297,54 @@ func tnk_free_peers(peers *C.tnk_peer, count C.int) {
 		C.free(unsafe.Pointer(slice[i].dns_name))
 		C.free(unsafe.Pointer(slice[i].host_name))
 		C.free(unsafe.Pointer(slice[i].tailscale_ip))
+		C.free(unsafe.Pointer(slice[i].addresses_json))
+		C.free(unsafe.Pointer(slice[i].tags_json))
+		C.free(unsafe.Pointer(slice[i].last_seen))
+		C.free(unsafe.Pointer(slice[i].current_addr))
+		C.free(unsafe.Pointer(slice[i].relay))
 		C.free(unsafe.Pointer(slice[i].os))
 	}
 	C.free(unsafe.Pointer(peers))
+}
+
+//export tnk_get_services_json
+func tnk_get_services_json(h C.longlong, profileID *C.char, outJSON **C.char) *C.char {
+	b := lookup(h)
+	if b == nil {
+		return C.CString("invalid bridge handle")
+	}
+	b.opMu.Lock()
+	defer b.opMu.Unlock()
+	services, err := b.engine.Services(C.GoString(profileID))
+	if err != nil {
+		return cError(err)
+	}
+	encoded, err := json.Marshal(services)
+	if err != nil {
+		return cError(err)
+	}
+	*outJSON = C.CString(string(encoded))
+	return nil
+}
+
+//export tnk_ping_path_json
+func tnk_ping_path_json(h C.longlong, profileID *C.char, peerIP *C.char, outJSON **C.char) *C.char {
+	b := lookup(h)
+	if b == nil {
+		return C.CString("invalid bridge handle")
+	}
+	b.opMu.Lock()
+	defer b.opMu.Unlock()
+	path, err := b.engine.PingPath(C.GoString(profileID), C.GoString(peerIP))
+	if err != nil {
+		return cError(err)
+	}
+	encoded, err := json.Marshal(path)
+	if err != nil {
+		return cError(err)
+	}
+	*outJSON = C.CString(string(encoded))
+	return nil
 }
 
 //export tnk_dial_tcp
@@ -339,6 +391,61 @@ func tnk_conn_write(h C.longlong, connID C.longlong, data unsafe.Pointer, length
 	return cError(b.engine.Write(int64(connID), C.GoBytes(data, length)))
 }
 
+//export tnk_conn_close_write
+func tnk_conn_close_write(h C.longlong, connID C.longlong) *C.char {
+	b := lookup(h)
+	if b == nil {
+		return C.CString("invalid bridge handle")
+	}
+	return cError(b.engine.CloseWrite(int64(connID)))
+}
+
+//export tnk_dial_udp
+func tnk_dial_udp(h C.longlong, profileID *C.char, host *C.char, port C.int, outConn *C.longlong) *C.char {
+	b := lookup(h)
+	if b == nil {
+		return C.CString("invalid bridge handle")
+	}
+	b.opMu.Lock()
+	defer b.opMu.Unlock()
+	id, err := b.engine.DialUDP(C.GoString(profileID), C.GoString(host), int(port))
+	if err != nil {
+		return cError(err)
+	}
+	*outConn = C.longlong(id)
+	return nil
+}
+
+//export tnk_datagram_receive
+func tnk_datagram_receive(h C.longlong, connID C.longlong, buf unsafe.Pointer, max C.int, outN *C.int) *C.char {
+	b := lookup(h)
+	if b == nil {
+		return C.CString("invalid bridge handle")
+	}
+	if max < 65535 {
+		return C.CString("datagram buffer must hold 65535 bytes")
+	}
+	data, err := b.engine.ReadDatagram(int64(connID))
+	if err != nil {
+		return cError(err)
+	}
+	n := copy(unsafe.Slice((*byte)(buf), int(max)), data)
+	*outN = C.int(n)
+	return nil
+}
+
+//export tnk_datagram_send
+func tnk_datagram_send(h C.longlong, connID C.longlong, data unsafe.Pointer, length C.int) *C.char {
+	b := lookup(h)
+	if b == nil {
+		return C.CString("invalid bridge handle")
+	}
+	if length <= 0 || length > 65507 {
+		return C.CString("invalid datagram size")
+	}
+	return cError(b.engine.WriteDatagram(int64(connID), C.GoBytes(data, length)))
+}
+
 //export tnk_conn_close
 func tnk_conn_close(h C.longlong, connID C.longlong) *C.char {
 	b := lookup(h)
@@ -362,6 +469,17 @@ func tnk_open_loopback_relay(h C.longlong, profileID *C.char, host *C.char, port
 	}
 	*outPort = C.int(p)
 	return nil
+}
+
+//export tnk_close_loopback_relay
+func tnk_close_loopback_relay(h C.longlong, relayPort C.int) *C.char {
+	b := lookup(h)
+	if b == nil {
+		return C.CString("invalid bridge handle")
+	}
+	b.opMu.Lock()
+	defer b.opMu.Unlock()
+	return cError(b.engine.CloseRelay(int(relayPort)))
 }
 
 //export tnk_verify_ssh_host_key

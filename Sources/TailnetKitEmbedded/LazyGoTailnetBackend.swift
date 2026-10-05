@@ -86,12 +86,28 @@ public actor LazyGoTailnetBackend: TailnetBackend {
         try await ensureGo().peers()
     }
 
+    public func services() async throws -> [TailnetService] {
+        try await ensureGo().services()
+    }
+
+    public func pingPath(peerIP: String) async throws -> TailnetPath {
+        try await ensureGo().pingPath(peerIP: peerIP)
+    }
+
     public func dialTCP(host: String, port: Int) async throws -> any TailnetConnection {
         try await ensureGo().dialTCP(host: host, port: port)
     }
 
+    public func dialUDP(host: String, port: Int) async throws -> any TailnetDatagramConnection {
+        try await ensureGo().dialUDP(host: host, port: port)
+    }
+
     public func openLoopbackRelay(host: String, port: Int) async throws -> Int {
         try await ensureGo().openLoopbackRelay(host: host, port: port)
+    }
+
+    public func closeLoopbackRelay(port: Int) async {
+        await goBackend?.closeLoopbackRelay(port: port)
     }
 
     public func verifyHostKey(hostname: String, port: Int, fingerprintSHA256: String) async -> Bool {

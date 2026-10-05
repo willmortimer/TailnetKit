@@ -4,8 +4,10 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"tailscale.com/ipn/ipnstate"
+	"tailscale.com/types/views"
 )
 
 func runningStatus() *ipnstate.Status {
@@ -68,23 +70,50 @@ func TestClassifyStatus(t *testing.T) {
 }
 
 func TestMapPeer(t *testing.T) {
+	tags := views.SliceOf([]string{"tag:dev", "tag:prod"})
 	p := &ipnstate.PeerStatus{
-		ID:           "n123",
-		DNSName:      "box.example.ts.net.",
-		HostName:     "box",
-		OS:           "linux",
-		Online:       true,
-		TailscaleIPs: []netip.Addr{netip.MustParseAddr("100.64.0.9")},
+		ID:       "n123",
+		DNSName:  "box.example.ts.net.",
+		HostName: "box",
+		OS:       "linux",
+		Online:   true,
+		TailscaleIPs: []netip.Addr{
+			netip.MustParseAddr("100.64.0.9"),
+			netip.MustParseAddr("fd7a:115c:a1e0::9"),
+		},
+		SSH_HostKeys: []string{"ssh-ed25519 AAAA"},
+		Tags:         &tags,
+		LastSeen:     time.Date(2026, time.October, 4, 12, 34, 56, 0, time.FixedZone("UTC-7", -7*60*60)),
+		CurAddr:      "192.0.2.12:41641",
+		Relay:        "sfo",
 	}
 	got := mapPeer(p)
 	if got.ID != "n123" || got.HostName != "box" || got.TailscaleIP != "100.64.0.9" || !got.Online {
 		t.Errorf("mapPeer mismatch: %+v", got)
 	}
 	if !got.SSHEnabled {
-		t.Error("linux peer should hint SSHEnabled")
+		t.Error("advertised SSH host key should mark SSHEnabled")
+	}
+	if strings.Join(got.Addresses, ",") != "100.64.0.9,fd7a:115c:a1e0::9" {
+		t.Errorf("Addresses = %v, want all advertised Tailscale IPs", got.Addresses)
+	}
+	if strings.Join(got.Tags, ",") != "tag:dev,tag:prod" {
+		t.Errorf("Tags = %v, want [tag:dev tag:prod]", got.Tags)
+	}
+	if got.LastSeen != "2026-10-04T19:34:56Z" {
+		t.Errorf("LastSeen = %q, want UTC RFC3339 timestamp", got.LastSeen)
+	}
+	if got.CurrentAddr != "192.0.2.12:41641" || got.Relay != "sfo" || got.OS != "linux" {
+		t.Errorf("observed peer path/platform fields not mapped: %+v", got)
+	}
+	if mapPeer(&ipnstate.PeerStatus{OS: "linux"}).SSHEnabled {
+		t.Error("host OS alone must not imply SSHEnabled")
 	}
 	if mapPeer(&ipnstate.PeerStatus{OS: "windows"}).SSHEnabled {
 		t.Error("windows peer should not hint SSHEnabled")
+	}
+	if mapPeer(&ipnstate.PeerStatus{SSH_HostKeys: []string{}}).SSHEnabled {
+		t.Error("empty SSH host key list must not mark SSHEnabled")
 	}
 }
 
