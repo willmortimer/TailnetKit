@@ -40,11 +40,20 @@ func mapTailnetState(_ s: tnk_state) -> TailnetState {
 }
 
 func mapTailnetPeer(_ p: tnk_peer) -> TailnetPeer {
-    TailnetPeer(
+    func strings(_ raw: UnsafeMutablePointer<CChar>?) -> [String] {
+        guard let raw, let data = String(cString: raw).data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([String].self, from: data)) ?? []
+    }
+    return TailnetPeer(
         id: cstr(p.id) ?? "",
         dnsName: cstr(p.dns_name) ?? "",
         hostName: cstr(p.host_name) ?? "",
         tailscaleIP: cstr(p.tailscale_ip) ?? "",
+        addresses: strings(p.addresses_json),
+        tags: strings(p.tags_json),
+        lastSeen: cstr(p.last_seen),
+        currentAddress: cstr(p.current_addr),
+        relayRegion: cstr(p.relay),
         os: cstr(p.os),
         online: p.online != 0,
         sshEnabled: p.ssh_enabled != 0

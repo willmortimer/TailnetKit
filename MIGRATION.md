@@ -552,9 +552,13 @@ The coordinator knows that TailnetKit can produce an endpoint. It does not know 
 
 ### `0.3.0`
 
-- second real consumer
-- API revisions based on dogfooding
-- optional SwiftUI module
+Bridge protocol 3, Tailscale v1.104.0, Go 1.27.1.
+
+- Owned TCP connections and loopback relays: clean EOF, short-write completion, write-side half-close, and profile-scoped teardown
+- `sshEnabled` comes from advertised SSH host keys, not the peer operating system
+- Typed peer path fields, visible Tailscale Services, and direct/DERP path probes
+- Datagram `dialUDP` for a later on-device Mosh proof. This release does not include a Mosh client
+- `TailnetKitNIO` wraps an already-dialed `TailnetConnection` as a SwiftNIO `Channel` with ordered writes, read backpressure, and half-close. Loopback relays remain for callers that need a socket address, such as `WKWebView`
 
 ### `1.0.0`
 

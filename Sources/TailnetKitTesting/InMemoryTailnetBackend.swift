@@ -54,25 +54,45 @@ public actor InMemoryTailnetBackend: TailnetBackend {
 }
 
 private final class InMemoryTailnetConnection: TailnetConnection, @unchecked Sendable {
-    private let host: String
-    private let port: Int
+    private let lock = NSLock()
     private var closed = false
+    private var waiters: [CheckedContinuation<Data, Error>] = []
 
     init(host: String, port: Int) {
-        self.host = host
-        self.port = port
+        _ = host
+        _ = port
     }
 
+    /// Suspends until close. An empty payload is clean EOF, matching `TailnetConnection`.
     func read(maxBytes: Int) async throws -> Data {
-        try await Task.sleep(nanoseconds: 50_000_000)
-        return Data()
+        try await withCheckedThrowingContinuation { continuation in
+            lock.lock()
+            if closed {
+                lock.unlock()
+                continuation.resume(returning: Data())
+                return
+            }
+            waiters.append(continuation)
+            lock.unlock()
+        }
     }
 
     func write(_ data: Data) async throws {
-        if closed { throw TailnetError.destinationUnreachable("connection closed") }
+        lock.lock()
+        let isClosed = closed
+        lock.unlock()
+        if isClosed { throw TailnetError.destinationUnreachable("connection closed") }
+        _ = data
     }
 
     func close() async {
+        lock.lock()
         closed = true
+        let pending = waiters
+        waiters.removeAll()
+        lock.unlock()
+        for waiter in pending {
+            waiter.resume(returning: Data())
+        }
     }
 }

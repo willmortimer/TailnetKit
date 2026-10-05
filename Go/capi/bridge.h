@@ -39,6 +39,11 @@ typedef struct {
     char *dns_name;
     char *host_name;
     char *tailscale_ip;
+    char *addresses_json;
+    char *tags_json;
+    char *last_seen;
+    char *current_addr;
+    char *relay;
     char *os;
     int online;
     int ssh_enabled;

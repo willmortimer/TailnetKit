@@ -66,6 +66,11 @@ typedef struct {
     char *dns_name;
     char *host_name;
     char *tailscale_ip;
+    char *addresses_json;
+    char *tags_json;
+    char *last_seen;
+    char *current_addr;
+    char *relay;
     char *os;
     int online;
     int ssh_enabled;
@@ -121,22 +126,38 @@ char *tnk_get_peers(tnk_bridge h, const char *profile_id, tnk_peer **out_peers, 
 // Release a peer array returned by tnk_get_peers.
 void tnk_free_peers(tnk_peer *peers, int count);
 
+// JSON arrays/objects are malloc'd and caller-owned; release with tnk_free.
+char *tnk_get_services_json(tnk_bridge h, const char *profile_id, char **out_json);
+char *tnk_ping_path_json(tnk_bridge h, const char *profile_id, const char *peer_ip, char **out_json);
+
 // Dial host:port over the tailnet; write an opaque connection id to *out_conn.
 char *tnk_dial_tcp(tnk_bridge h, const char *profile_id, const char *host, int port, long long *out_conn);
 
 // Read up to `max` bytes from a connection into `buf`; write the count to *out_n.
-// A non-NULL return (e.g. "EOF") signals the connection is finished.
+// EOF is reported as success with *out_n == 0. A non-NULL return is an error.
 char *tnk_conn_read(tnk_bridge h, long long conn_id, void *buf, int max, int *out_n);
 
 // Write `length` bytes from `data` to a connection.
 char *tnk_conn_write(tnk_bridge h, long long conn_id, const void *data, int length);
 
+// Half-close the writing side. The reading side remains usable.
+char *tnk_conn_close_write(tnk_bridge h, long long conn_id);
+
+// Connected UDP transport. Each receive returns one datagram (max 65535 bytes);
+// each send transmits exactly one datagram. Close with tnk_conn_close.
+char *tnk_dial_udp(tnk_bridge h, const char *profile_id, const char *host, int port, long long *out_conn);
+char *tnk_datagram_receive(tnk_bridge h, long long conn_id, void *buf, int max, int *out_n);
+char *tnk_datagram_send(tnk_bridge h, long long conn_id, const void *data, int length);
+
 // Close a dialed connection.
 char *tnk_conn_close(tnk_bridge h, long long conn_id);
 
-// Bind 127.0.0.1:0 and proxy one inbound connection to host:port over the tailnet.
+// Bind 127.0.0.1:0 and proxy inbound connections to host:port over the tailnet.
 // Write the chosen loopback port to *out_port.
 char *tnk_open_loopback_relay(tnk_bridge h, const char *profile_id, const char *host, int port, int *out_port);
+
+// Stop accepting clients on the specified relay port.
+char *tnk_close_loopback_relay(tnk_bridge h, int relay_port);
 
 // Check an SSH host-key fingerprint against the peer's advertised keys. Returns 1 on
 // match, 0 otherwise (including any error).
