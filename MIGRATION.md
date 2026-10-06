@@ -572,6 +572,12 @@ Bridge protocol 3, Tailscale v1.104.0, Go 1.27.1.
 - Profile lifecycle is explicit: `configured`, `starting`, `running`, and `stopping`. `configure` of a different profile is rejected as soon as start begins, including while `start` is suspended. `stop` during start does not leave the phase running
 - `TailnetByteChannel.make` owns the `TailnetConnection` if pipeline setup or registration fails: it closes the connection before failing the factory future
 
+### Before `0.4.0`
+
+`configure` of the same profile UUID while starting, running, or stopping currently stores the new profile in the Swift phase. The Go backend has already passed the previous hostname, control URL, and state directory to `tnk_start`, so Swift can report the new runtime while `tsnet.Server` is still the old one. The in-memory backend does apply that rename.
+
+Before 0.4, tighten the contract. Once start begins, configuring an identical runtime profile is a no-op. A change to hostname, control URL, or state directory is rejected until stop. `displayName` may stay mutable. Do not ship that change as 0.3.3.
+
 ### `1.0.0`
 
 Only after:
