@@ -567,6 +567,11 @@ Bridge protocol 3, Tailscale v1.104.0, Go 1.27.1.
 - TCP dials through the embedded node and loopback relays use a 30-second deadline. A failed `Start` closes the `tsnet.Server` it created
 - `configure` may repeat the same profile while running. A different profile requires `stop()` first and otherwise throws `TailnetError.identityAlreadyRunning`
 
+### `0.3.2`
+
+- Profile lifecycle is explicit: `configured`, `starting`, `running`, and `stopping`. `configure` of a different profile is rejected as soon as start begins, including while `start` is suspended. `stop` during start does not leave the phase running
+- `TailnetByteChannel.make` owns the `TailnetConnection` if pipeline setup or registration fails: it closes the connection before failing the factory future
+
 ### `1.0.0`
 
 Only after:
