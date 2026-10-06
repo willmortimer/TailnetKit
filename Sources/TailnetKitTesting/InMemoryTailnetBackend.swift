@@ -5,9 +5,12 @@ import TailnetKitCore
 public actor InMemoryTailnetBackend: TailnetBackend {
     public nonisolated let kind: TailnetBackendKind = .developmentStub
 
-    private var running = false
-    private var profile: TailnetProfile?
+    private var phase = TailnetRuntimePhase()
     private var peersList: [TailnetPeer]
+    private var startSuspension: (@Sendable () async throws -> Void)?
+    private var startWaiters: [CheckedContinuation<Void, Error>] = []
+    private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+    private var startBridgeFinished: CheckedContinuation<Void, Never>?
     private let eventsContinuation: AsyncStream<TailnetEvent>.Continuation
     private let eventsStream: AsyncStream<TailnetEvent>
 
@@ -21,38 +24,102 @@ public actor InMemoryTailnetBackend: TailnetBackend {
     }
 
     private var stubIdentity: TailnetIdentity {
-        TailnetIdentity(hostname: profile?.hostname ?? "stub", ipv4: "100.64.0.2")
+        TailnetIdentity(hostname: phase.profile?.hostname ?? "stub", ipv4: "100.64.0.2")
+    }
+
+    /// Runs after the phase enters `.starting` and before it becomes `.running`.
+    /// Tests use this to reenter `configure` during start.
+    public func setStartSuspension(_ suspension: (@Sendable () async throws -> Void)?) {
+        startSuspension = suspension
     }
 
     public func configure(profile: TailnetProfile, stateDirectory: URL) async throws {
-        if let current = self.profile, current.id != profile.id, running {
-            throw TailnetError.identityAlreadyRunning
-        }
-        self.profile = profile
+        _ = stateDirectory
+        try phase.configure(profile)
     }
 
     public func start() async throws {
-        running = true
-        eventsContinuation.yield(.state(.running(stubIdentity)))
+        switch try phase.beginStart() {
+        case .alreadyRunning:
+            return
+        case .joinInFlight:
+            try await withCheckedThrowingContinuation { startWaiters.append($0) }
+        case .afterStop:
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                stopWaiters.append(continuation)
+            }
+            try await start()
+        case .start(let profile):
+            do {
+                if let startSuspension {
+                    try await startSuspension()
+                }
+            } catch {
+                phase.failStart(profileID: profile.id)
+                startBridgeFinished?.resume()
+                startBridgeFinished = nil
+                resumeStartWaiters(.failure(error))
+                throw error
+            }
+            if !phase.finishStart(profileID: profile.id) {
+                startBridgeFinished?.resume()
+                startBridgeFinished = nil
+            } else {
+                eventsContinuation.yield(.state(.running(stubIdentity)))
+            }
+            resumeStartWaiters(.success(()))
+        }
     }
 
     public func stop() async {
-        running = false
-        eventsContinuation.yield(.state(.stopped))
+        switch phase.beginStop() {
+        case .none:
+            return
+        case .joinInFlight:
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                stopWaiters.append(continuation)
+            }
+        case .stop(let profile, let interruptedStart):
+            if interruptedStart {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    startBridgeFinished = continuation
+                }
+            }
+            phase.finishStop(profileID: profile.id)
+            eventsContinuation.yield(.state(.stopped))
+            let waiters = stopWaiters
+            stopWaiters.removeAll()
+            for waiter in waiters {
+                waiter.resume()
+            }
+        }
     }
 
     public func currentState() async -> TailnetState {
-        running ? .running(stubIdentity) : .stopped
+        phase.isRunning ? .running(stubIdentity) : .stopped
     }
 
     public func peers() async throws -> [TailnetPeer] {
-        guard running else { throw TailnetError.notRunning }
+        guard phase.isRunning else { throw TailnetError.notRunning }
         return peersList
     }
 
     public func dialTCP(host: String, port: Int) async throws -> any TailnetConnection {
-        guard running else { throw TailnetError.notRunning }
+        guard phase.isRunning else { throw TailnetError.notRunning }
         return InMemoryTailnetConnection(host: host, port: port)
+    }
+
+    private func resumeStartWaiters(_ result: Result<Void, Error>) {
+        let waiters = startWaiters
+        startWaiters.removeAll()
+        for waiter in waiters {
+            switch result {
+            case .success:
+                waiter.resume()
+            case .failure(let error):
+                waiter.resume(throwing: error)
+            }
+        }
     }
 }
 

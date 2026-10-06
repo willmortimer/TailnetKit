@@ -7,9 +7,12 @@ import TailnetKitCore
 /// This path does not open a loopback socket. Callers that need a local address,
 /// such as `WKWebView`, keep using `TailnetClient.openLoopbackRelay`.
 public enum TailnetByteChannel {
+    /// Test seam: the next `register0` fails once. Registration then closes the connection.
+    static var failNextRegistration = false
+
     /// Installs `initialize` and only then registers the channel, so `channelActive`
     /// reaches handlers that must see it. Reading stays off until the caller enables
-    /// `autoRead` or calls `read()`.
+    /// `autoRead` or calls `read()`. The factory owns `connection` on both success and failure.
     public static func make(
         connection: any TailnetConnection,
         on eventLoop: EventLoop,
@@ -18,15 +21,30 @@ public enum TailnetByteChannel {
         let channel = TailnetStreamChannel(connection: connection, eventLoop: eventLoop)
         let promise = eventLoop.makePromise(of: Channel.self)
         eventLoop.execute {
+            // The caller never sees the channel if setup fails, so close it here.
+            func abandon(_ error: Error) {
+                channel.close().whenComplete { result in
+                    switch result {
+                    case .success:
+                        promise.fail(error)
+                    case .failure:
+                        Task {
+                            await channel.closeOwnedConnection()
+                            promise.fail(error)
+                        }
+                    }
+                }
+            }
+
             initialize(channel).hop(to: eventLoop).whenComplete { result in
                 switch result {
                 case .failure(let error):
-                    promise.fail(error)
+                    abandon(error)
                 case .success:
                     channel.register().whenComplete { registered in
                         switch registered {
                         case .failure(let error):
-                            promise.fail(error)
+                            abandon(error)
                         case .success:
                             promise.succeed(channel)
                         }
@@ -109,7 +127,16 @@ private final class TailnetStreamChannel: Channel, ChannelCore, @unchecked Senda
     func localAddress0() throws -> SocketAddress { throw ChannelError.unknownLocalAddress }
     func remoteAddress0() throws -> SocketAddress { throw ChannelError.unknownLocalAddress }
 
+    func closeOwnedConnection() async {
+        await connection.close()
+    }
+
     func register0(promise: EventLoopPromise<Void>?) {
+        if TailnetByteChannel.failNextRegistration {
+            TailnetByteChannel.failNextRegistration = false
+            promise?.fail(ChannelError.ioOnClosedChannel)
+            return
+        }
         guard !isActive, !didClose else {
             promise?.succeed(())
             return

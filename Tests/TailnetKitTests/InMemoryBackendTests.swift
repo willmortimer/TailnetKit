@@ -105,6 +105,29 @@ final class TailnetClientTests: XCTestCase {
         try await backend.configure(profile: other, stateDirectory: dir)
     }
 
+    func testConfigureDuringStartRejectsADifferentIdentity() async throws {
+        let backend = InMemoryTailnetBackend()
+        let dir = FileManager.default.temporaryDirectory
+        try await backend.configure(profile: .main, stateDirectory: dir)
+        let other = TailnetProfile(id: UUID(), displayName: "Other", hostname: "other")
+        await backend.setStartSuspension {
+            do {
+                try await backend.configure(profile: other, stateDirectory: dir)
+                XCTFail("expected a starting identity to refuse replacement")
+            } catch let error as TailnetError {
+                guard case .identityAlreadyRunning = error else {
+                    return XCTFail("expected .identityAlreadyRunning, got \(error)")
+                }
+            }
+            let renamed = TailnetProfile(displayName: "Renamed", hostname: "renamed")
+            try await backend.configure(profile: renamed, stateDirectory: dir)
+        }
+
+        try await backend.start()
+        let running = await backend.currentState()
+        XCTAssertEqual(running, .running(TailnetIdentity(hostname: "renamed", ipv4: "100.64.0.2")))
+    }
+
     func testCancelledReadResumesInsteadOfParking() async throws {
         let backend = InMemoryTailnetBackend()
         try await backend.configure(profile: .main, stateDirectory: FileManager.default.temporaryDirectory)
@@ -117,6 +140,53 @@ final class TailnetClientTests: XCTestCase {
             XCTFail("expected cancellation")
         } catch is CancellationError {
         }
+    }
+}
+
+final class TailnetRuntimePhaseTests: XCTestCase {
+    func testDifferentIdentityIsRejectedWhileStarting() throws {
+        var phase = TailnetRuntimePhase()
+        try phase.configure(.main)
+        guard case .start = try phase.beginStart() else {
+            return XCTFail("expected to begin start")
+        }
+        XCTAssertThrowsError(try phase.configure(TailnetProfile(id: UUID(), hostname: "other"))) { error in
+            guard case TailnetError.identityAlreadyRunning = error else {
+                return XCTFail("expected .identityAlreadyRunning, got \(error)")
+            }
+        }
+        XCTAssertFalse(phase.finishStart(profileID: UUID()))
+        XCTAssertTrue(phase.finishStart(profileID: TailnetProfile.mainID))
+        XCTAssertTrue(phase.isRunning)
+    }
+
+    func testStopDuringStartPreventsRunning() throws {
+        var phase = TailnetRuntimePhase()
+        try phase.configure(.main)
+        _ = try phase.beginStart()
+        guard case .stop(_, let interruptedStart) = phase.beginStop() else {
+            return XCTFail("expected stop to interrupt start")
+        }
+        XCTAssertTrue(interruptedStart)
+        XCTAssertFalse(phase.finishStart(profileID: TailnetProfile.mainID))
+        phase.finishStop(profileID: TailnetProfile.mainID)
+        XCTAssertFalse(phase.isRunning)
+        guard case .configured = phase.value else {
+            return XCTFail("expected configured after an interrupted start")
+        }
+    }
+
+    func testStartWhileRunningAndStopWhileConfiguredAreNoOps() throws {
+        var phase = TailnetRuntimePhase()
+        try phase.configure(.main)
+        _ = try phase.beginStart()
+        XCTAssertTrue(phase.finishStart(profileID: TailnetProfile.mainID))
+        XCTAssertEqual(try phase.beginStart(), .alreadyRunning)
+        guard case .stop = phase.beginStop() else {
+            return XCTFail("expected a running profile to stop")
+        }
+        phase.finishStop(profileID: TailnetProfile.mainID)
+        XCTAssertEqual(phase.beginStop(), .none)
     }
 }
 

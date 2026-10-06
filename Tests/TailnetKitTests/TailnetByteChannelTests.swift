@@ -117,6 +117,39 @@ final class TailnetByteChannelTests: XCTestCase {
         try await channel.close().get()
         try await group.shutdownGracefully()
     }
+
+    func testInitializerFailureClosesTheConnection() async throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let remote = ScriptedTailnetConnection()
+        let loop = group.next()
+        do {
+            _ = try await TailnetByteChannel.make(connection: remote, on: loop) { channel in
+                channel.eventLoop.makeFailedFuture(ChannelError.operationUnsupported)
+            }.get()
+            XCTFail("expected the initializer failure to fail the factory")
+        } catch let error as ChannelError {
+            XCTAssertEqual(error, .operationUnsupported)
+        }
+        XCTAssertEqual(remote.closeCount(), 1)
+        try await group.shutdownGracefully()
+    }
+
+    func testRegistrationFailureClosesTheConnection() async throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        let remote = ScriptedTailnetConnection()
+        let loop = group.next()
+        do {
+            _ = try await TailnetByteChannel.make(connection: remote, on: loop) { channel in
+                TailnetByteChannel.failNextRegistration = true
+                return channel.eventLoop.makeSucceededVoidFuture()
+            }.get()
+            XCTFail("expected registration failure to fail the factory")
+        } catch let error as ChannelError {
+            XCTAssertEqual(error, .ioOnClosedChannel)
+        }
+        XCTAssertEqual(remote.closeCount(), 1)
+        try await group.shutdownGracefully()
+    }
 }
 
 private func makeChannel(
